@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="14dp">
+
+    <!-- Header: SessionSense + status pill -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="10dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="SessionSense"
+            android:textColor="#F2F2F3"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="-0.01" />
+
+        <TextView
+            android:id="@+id/widget_status_pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SAFE"
+            android:textColor="#6EE7D0"
+            android:textSize="8sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.06"
+            android:paddingStart="9dp"
+            android:paddingEnd="9dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:background="@drawable/widget_pill_neutral" />
+
+    </LinearLayout>
+
+    <!-- Countdown section (inside a card) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:background="@drawable/widget_section"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="TIME REMAINING IN SESSION"
+            android:textColor="#40F2F2F3"
+            android:textSize="7.5sp"
+            android:letterSpacing="0.08"
+            android:layout_marginBottom="4dp" />
+
+        <!-- Countdown big (color set in Kotlin) -->
+        <TextView
+            android:id="@+id/widget_session_remaining"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--:--:--"
+            android:textColor="#6EE7D0"
+            android:textSize="30sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="-0.02" />
+
+        <TextView
+            android:id="@+id/widget_session_reset"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="resets at --"
+            android:textColor="#40F2F2F3"
+            android:textSize="9sp"
+            android:layout_marginTop="2dp" />
+
+    </LinearLayout>
+
+    <!-- Weekly usage section -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:background="@drawable/widget_section"
+        android:padding="12dp"
+        android:layout_marginBottom="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="WEEKLY USAGE"
+                android:textColor="#40F2F2F3"
+                android:textSize="7.5sp"
+                android:letterSpacing="0.08" />
+
+            <TextView
+                android:id="@+id/widget_weekly_reset"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="resets --"
+                android:textColor="#40F2F2F3"
+                android:textSize="8sp" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="bottom">
+
+                <TextView
+                    android:id="@+id/widget_weekly_pct"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="#B8C4F0"
+                    android:textSize="34sp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="-0.02" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="%"
+                    android:textColor="#52B8C4F0"
+                    android:textSize="15sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginBottom="6dp" />
+
+            </LinearLayout>
+
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/widget_est_tokens"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="~-- tokens"
+                android:textColor="#52F2F2F3"
+                android:textSize="10sp"
+                android:fontFamily="monospace" />
+
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/widget_weekly_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="5dp"
+            android:layout_marginTop="8dp"
+            android:progress="0"
+            android:max="100"
+            android:progressDrawable="@drawable/widget_progress_blue" />
+
+    </LinearLayout>
+
+    <!-- Bar chart section -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:background="@drawable/widget_section"
+        android:padding="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="DAILY PEAK SESSION %"
+                android:textColor="#40F2F2F3"
+                android:textSize="7.5sp"
+                android:letterSpacing="0.08" />
+
+            <TextView
+                android:id="@+id/widget_updated"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="updated --"
+                android:textColor="#30F2F2F3"
+                android:textSize="7.5sp" />
+
+        </LinearLayout>
+
+        <!-- Bar chart rendered as bitmap -->
+        <ImageView
+            android:id="@+id/widget_bar_chart"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scaleType="fitXY" />
+
+    </LinearLayout>
+
+</LinearLayout>

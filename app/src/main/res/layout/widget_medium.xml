@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="13dp">
+
+    <!-- Header: SessionSense + status pill -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="SessionSense"
+            android:textColor="#F2F2F3"
+            android:textSize="12sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="-0.01" />
+
+        <TextView
+            android:id="@+id/widget_status_pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SAFE"
+            android:textColor="#6EE7D0"
+            android:textSize="7.5sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.06"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:background="@drawable/widget_pill_neutral" />
+
+    </LinearLayout>
+
+    <!-- Two section cards side by side -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <!-- Left: Time Remaining / Session -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:background="@drawable/widget_section"
+            android:padding="10dp"
+            android:layout_marginEnd="5dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="TIME REMAINING"
+                android:textColor="#40F2F2F3"
+                android:textSize="7sp"
+                android:letterSpacing="0.10" />
+
+            <!-- Countdown (color set in Kotlin) -->
+            <TextView
+                android:id="@+id/widget_session_remaining"
+                android:layout_width="wrap_content"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:text="--:--"
+                android:textColor="#6EE7D0"
+                android:textSize="20sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="-0.02" />
+
+            <!-- Progress bars (state-toggled) -->
+            <ProgressBar
+                android:id="@+id/widget_session_bar_teal"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginBottom="4dp"
+                android:progress="0"
+                android:max="100"
+                android:progressDrawable="@drawable/widget_progress_teal" />
+
+            <ProgressBar
+                android:id="@+id/widget_session_bar_amber"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginBottom="4dp"
+                android:progress="0"
+                android:max="100"
+                android:visibility="gone"
+                android:progressDrawable="@drawable/widget_progress_amber" />
+
+            <ProgressBar
+                android:id="@+id/widget_session_bar_coral"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginBottom="4dp"
+                android:progress="0"
+                android:max="100"
+                android:visibility="gone"
+                android:progressDrawable="@drawable/widget_progress_coral" />
+
+            <!-- Session % + reset time row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/widget_session_pct"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="--"
+                    android:textColor="#6EE7D0"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    android:id="@+id/widget_session_reset"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="resets --"
+                    android:textColor="#40F2F2F3"
+                    android:textSize="7.5sp"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Right: Weekly Budget -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:background="@drawable/widget_section"
+            android:padding="10dp"
+            android:layout_marginStart="5dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="WEEKLY BUDGET"
+                android:textColor="#40F2F2F3"
+                android:textSize="7sp"
+                android:letterSpacing="0.10" />
+
+            <!-- Token estimate -->
+            <TextView
+                android:id="@+id/widget_est_tokens"
+                android:layout_width="wrap_content"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:text="--"
+                android:textColor="#F2F2F3"
+                android:textSize="18sp"
+                android:fontFamily="monospace" />
+
+            <ProgressBar
+                android:id="@+id/widget_weekly_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginBottom="4dp"
+                android:progress="0"
+                android:max="100"
+                android:progressDrawable="@drawable/widget_progress_blue" />
+
+            <!-- Weekly % + label row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="7-day rolling"
+                    android:textColor="#40F2F2F3"
+                    android:textSize="7.5sp" />
+
+                <TextView
+                    android:id="@+id/widget_weekly_pct"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="#B8C4F0"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</LinearLayout>

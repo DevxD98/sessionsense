@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="13dp">
+
+    <!-- Header: SESSION label + live dot -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="SESSION"
+            android:textColor="#52F2F2F3"
+            android:textSize="7.5sp"
+            android:letterSpacing="0.12"
+            android:fontFamily="sans-serif-medium" />
+
+        <ImageView
+            android:id="@+id/widget_live_dot"
+            android:layout_width="6dp"
+            android:layout_height="6dp"
+            android:background="@drawable/widget_dot_live" />
+
+    </LinearLayout>
+
+    <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+
+    <!-- Big session % (color set in Kotlin) -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="bottom">
+
+        <TextView
+            android:id="@+id/widget_session_pct"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--"
+            android:textColor="#6EE7D0"
+            android:textSize="38sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="-0.02" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="%"
+            android:textColor="#526EE7D0"
+            android:textSize="15sp"
+            android:fontFamily="monospace"
+            android:layout_marginStart="1dp"
+            android:layout_marginBottom="5dp" />
+
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="5h rolling limit"
+        android:textColor="#40F2F2F3"
+        android:textSize="8.5sp"
+        android:layout_marginTop="-2dp" />
+
+    <!-- Progress bars: one per state, toggled by Kotlin -->
+    <ProgressBar
+        android:id="@+id/widget_session_bar_teal"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="5dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="6dp"
+        android:progress="0"
+        android:max="100"
+        android:progressDrawable="@drawable/widget_progress_teal" />
+
+    <ProgressBar
+        android:id="@+id/widget_session_bar_amber"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="5dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="6dp"
+        android:progress="0"
+        android:max="100"
+        android:visibility="gone"
+        android:progressDrawable="@drawable/widget_progress_amber" />
+
+    <ProgressBar
+        android:id="@+id/widget_session_bar_coral"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="5dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="6dp"
+        android:progress="0"
+        android:max="100"
+        android:visibility="gone"
+        android:progressDrawable="@drawable/widget_progress_coral" />
+
+    <!-- Weekly footer -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="WEEKLY"
+            android:textColor="#40F2F2F3"
+            android:textSize="7.5sp"
+            android:letterSpacing="0.08" />
+
+        <TextView
+            android:id="@+id/widget_weekly_pct"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--%"
+            android:textColor="#B8C4F0"
+            android:textSize="11sp"
+            android:fontFamily="monospace" />
+
+    </LinearLayout>
+
+</LinearLayout>
