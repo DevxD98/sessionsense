@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="13dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="CLAUDE"
+        android:textColor="#52F2F2F3"
+        android:textSize="7.5sp"
+        android:letterSpacing="0.12"
+        android:fontFamily="sans-serif-medium" />
+
+    <!-- Spacer: RemoteViews refuses to inflate a generic android.view.View
+         (only its own whitelisted view classes), so use an empty TextView. -->
+    <TextView
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- The whole pet face (ears, head, screen, eyes, and any state badge
+         like "Zzz" or "ALARM!") is drawn into one bitmap in Kotlin (Canvas) —
+         RemoteViews can't host custom shapes directly. -->
+    <ImageView
+        android:id="@+id/widget_mascot_face"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal" />
+
+    <!-- Spacer -->
+    <TextView
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <TextView
+        android:id="@+id/widget_mascot_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Sleeping · 0%"
+        android:textColor="#F2F2F3"
+        android:textSize="10.5sp"
+        android:fontFamily="sans-serif-medium"
+        android:gravity="center"
+        android:singleLine="true"
+        android:ellipsize="end" />
+
+</LinearLayout>

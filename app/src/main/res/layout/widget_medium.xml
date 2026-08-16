@@ -48,96 +48,83 @@
         android:layout_weight="1"
         android:orientation="horizontal">
 
-        <!-- Left: Time Remaining / Session -->
+        <!-- Left: Activity ring (sweep = % session used) wrapping the
+             live countdown. Replaces the old flat linear progress bars. -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:orientation="vertical"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
             android:background="@drawable/widget_section"
             android:padding="10dp"
             android:layout_marginEnd="5dp">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="TIME REMAINING"
-                android:textColor="#40F2F2F3"
-                android:textSize="7sp"
-                android:letterSpacing="0.10" />
+            <FrameLayout
+                android:layout_width="66dp"
+                android:layout_height="66dp">
 
-            <!-- Countdown (color set in Kotlin) -->
-            <TextView
-                android:id="@+id/widget_session_remaining"
-                android:layout_width="wrap_content"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:gravity="center_vertical"
-                android:text="--:--"
-                android:textColor="#6EE7D0"
-                android:textSize="20sp"
-                android:fontFamily="monospace"
-                android:letterSpacing="-0.02" />
+                <ImageView
+                    android:id="@+id/widget_session_ring"
+                    android:layout_width="66dp"
+                    android:layout_height="66dp" />
 
-            <!-- Progress bars (state-toggled) -->
-            <ProgressBar
-                android:id="@+id/widget_session_bar_teal"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="4dp"
-                android:layout_marginBottom="4dp"
-                android:progress="0"
-                android:max="100"
-                android:progressDrawable="@drawable/widget_progress_teal" />
+                <LinearLayout
+                    android:layout_width="66dp"
+                    android:layout_height="66dp"
+                    android:orientation="vertical"
+                    android:gravity="center">
 
-            <ProgressBar
-                android:id="@+id/widget_session_bar_amber"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="4dp"
-                android:layout_marginBottom="4dp"
-                android:progress="0"
-                android:max="100"
-                android:visibility="gone"
-                android:progressDrawable="@drawable/widget_progress_amber" />
+                    <Chronometer
+                        android:id="@+id/widget_session_remaining"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--:--"
+                        android:textColor="#6EE7D0"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="-0.04" />
 
-            <ProgressBar
-                android:id="@+id/widget_session_bar_coral"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="4dp"
-                android:layout_marginBottom="4dp"
-                android:progress="0"
-                android:max="100"
-                android:visibility="gone"
-                android:progressDrawable="@drawable/widget_progress_coral" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="LEFT"
+                        android:textColor="#40F2F2F3"
+                        android:textSize="6sp"
+                        android:letterSpacing="0.1" />
 
-            <!-- Session % + reset time row -->
+                </LinearLayout>
+
+            </FrameLayout>
+
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="10dp">
 
                 <TextView
                     android:id="@+id/widget_session_pct"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:text="--"
                     android:textColor="#6EE7D0"
-                    android:textSize="9sp"
-                    android:fontFamily="monospace" />
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
 
                 <TextView
                     android:id="@+id/widget_session_reset"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="resets --"
                     android:textColor="#40F2F2F3"
                     android:textSize="7.5sp"
                     android:singleLine="true"
-                    android:ellipsize="end" />
+                    android:ellipsize="end"
+                    android:layout_marginTop="2dp" />
 
             </LinearLayout>
 

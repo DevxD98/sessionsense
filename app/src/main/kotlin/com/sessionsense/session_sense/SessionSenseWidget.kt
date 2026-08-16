@@ -7,9 +7,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
-import android.view.View
+import android.os.SystemClock
 import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetPlugin
 import java.time.Instant
@@ -111,30 +112,20 @@ private fun fmtResetDay(isoStr: String?): String {
     } catch (_: Exception) { "--" }
 }
 
-// Returns "3:45:00" style (no zero-padding on hours)
-private fun fmtCountdown(isoStr: String?): String {
-    if (isoStr == null) return "--:--"
-    return try {
-        val resetAt = Instant.parse(isoStr)
-        val diffSec = (resetAt.epochSecond - Instant.now().epochSecond).coerceAtLeast(0)
-        val h = diffSec / 3600
-        val m = (diffSec % 3600) / 60
-        val s = diffSec % 60
-        "%d:%02d:%02d".format(h, m, s)
-    } catch (_: Exception) { "--:--" }
-}
-
-// Returns "03:45:00" style (zero-padded hours for large display)
-private fun fmtCountdownPadded(isoStr: String?): String {
-    if (isoStr == null) return "--:--:--"
-    return try {
-        val resetAt = Instant.parse(isoStr)
-        val diffSec = (resetAt.epochSecond - Instant.now().epochSecond).coerceAtLeast(0)
-        val h = diffSec / 3600
-        val m = (diffSec % 3600) / 60
-        val s = diffSec % 60
-        "%02d:%02d:%02d".format(h, m, s)
-    } catch (_: Exception) { "--:--:--" }
+// Drives the countdown TextView (a Chronometer) so it keeps ticking every
+// second on its own via SystemClock, instead of freezing between the
+// app's ~60s data pushes or the system's 30-min forced widget refresh.
+private fun applyCountdown(v: RemoteViews, viewId: Int, isoStr: String?, idleText: String) {
+    val resetAt = isoStr?.let { runCatching { Instant.parse(it) }.getOrNull() }
+    val diffMs = resetAt?.let { it.toEpochMilli() - Instant.now().toEpochMilli() } ?: -1L
+    if (resetAt == null || diffMs <= 0) {
+        // Not running / already elapsed: show static text rather than letting
+        // the Chronometer tick past zero into negative numbers.
+        v.setTextViewText(viewId, idleText)
+        return
+    }
+    val base = SystemClock.elapsedRealtime() + diffMs
+    v.setChronometer(viewId, base, null, true)
 }
 
 private fun estTokens(weeklyPct: Int, plan: String): String {
@@ -220,24 +211,263 @@ private fun buildBarChart(dailyPeaks: List<Int>, stateColor: Int, ctx: Context):
     return bmp
 }
 
-// ─── Shared: apply state-colored session progress bars ────────────
+// ─── Activity ring bitmap ───────────────────────────────────────────
 
-private fun RemoteViews.applySessionBar(pct: Int) {
-    val state = stateOf(pct)
-    val tealVisible  = if (state != "warning" && state != "danger") View.VISIBLE else View.GONE
-    val amberVisible = if (state == "warning") View.VISIBLE else View.GONE
-    val coralVisible = if (state == "danger")  View.VISIBLE else View.GONE
+// Replaces the old flat linear progress bars: a circular sweep (% used)
+// drawn around the live countdown/number, the same "activity ring" idiom
+// used by watch faces — far more glanceable than a thin bar at a distance.
+private fun buildProgressRing(pct: Int, color: Int, ctx: Context, sizeDp: Int, strokeDp: Float): Bitmap {
+    val density = ctx.resources.displayMetrics.density
+    val size = (sizeDp * density).toInt().coerceIn(1, 400)
+    val stroke = strokeDp * density
+    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+    val rect = RectF(stroke / 2, stroke / 2, size - stroke / 2, size - stroke / 2)
 
-    setViewVisibility(R.id.widget_session_bar_teal,  tealVisible)
-    setViewVisibility(R.id.widget_session_bar_amber, amberVisible)
-    setViewVisibility(R.id.widget_session_bar_coral, coralVisible)
-
-    val activeBar = when (state) {
-        "warning" -> R.id.widget_session_bar_amber
-        "danger"  -> R.id.widget_session_bar_coral
-        else      -> R.id.widget_session_bar_teal
+    val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = stroke
+        strokeCap = Paint.Cap.ROUND
+        this.color = Color.argb(28, 255, 255, 255)
     }
-    setProgressBar(activeBar, 100, pct, false)
+    val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = stroke
+        strokeCap = Paint.Cap.ROUND
+        this.color = color
+    }
+
+    canvas.drawArc(rect, 0f, 360f, false, trackPaint)
+    val sweep = 360f * pct.coerceIn(0, 100) / 100f
+    if (sweep > 0f) canvas.drawArc(rect, -90f, sweep, false, progressPaint)
+
+    return bmp
+}
+
+// ─── Boba energy cup bitmap ─────────────────────────────────────────
+
+// Cup + liquid + pearls + straw + lid, all drawn into one bitmap. RemoteViews
+// can't host custom shapes, so this mirrors the showcase's "Boba Energy Cup"
+// concept (frontend/widgets_showcase.html) as a static Canvas illustration —
+// the CSS wave/float animations don't translate, but the composition does.
+private fun buildBobaBitmap(pct: Int, color: Int, ctx: Context): Bitmap {
+    val density = ctx.resources.displayMetrics.density
+    fun dp(v: Float) = v * density
+
+    val w = dp(64f).toInt().coerceIn(1, 300)
+    val h = dp(78f).toInt().coerceIn(1, 400)
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+
+    val cupLeft = dp(12f)
+    val cupRight = dp(56f)
+    val cupTop = dp(20f)
+    val cupBottom = dp(76f).coerceAtMost(h - dp(2f))
+    val cupW = cupRight - cupLeft
+    val cupH = cupBottom - cupTop
+    val topRadius = dp(2f)
+    val bottomRadius = dp(14f)
+
+    val cupPath = Path().apply {
+        addRoundRect(
+            RectF(cupLeft, cupTop, cupRight, cupBottom),
+            floatArrayOf(
+                topRadius, topRadius, topRadius, topRadius,
+                bottomRadius, bottomRadius, bottomRadius, bottomRadius,
+            ),
+            Path.Direction.CW,
+        )
+    }
+
+    // Straw, rotated through the lid
+    val strawPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.argb(120, 255, 255, 255) }
+    canvas.save()
+    canvas.translate(cupLeft + cupW * 0.74f, cupTop - dp(2f))
+    canvas.rotate(-12f)
+    canvas.drawRoundRect(RectF(-dp(2.5f), -dp(34f), dp(2.5f), dp(6f)), dp(2.5f), dp(2.5f), strawPaint)
+    canvas.restore()
+
+    // Liquid + pearls, clipped to the cup interior
+    if (pct > 0) {
+        canvas.save()
+        canvas.clipPath(cupPath)
+
+        val liquidH = cupH * pct.coerceIn(0, 100) / 100f
+        val liquidTop = cupBottom - liquidH
+
+        val liquidPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; alpha = 230 }
+        val wavePath = Path().apply {
+            moveTo(cupLeft, liquidTop + dp(4f))
+            quadTo(cupLeft + cupW * 0.25f, liquidTop - dp(2f), cupLeft + cupW * 0.5f, liquidTop + dp(4f))
+            quadTo(cupLeft + cupW * 0.75f, liquidTop + dp(10f), cupRight, liquidTop + dp(4f))
+            lineTo(cupRight, cupBottom)
+            lineTo(cupLeft, cupBottom)
+            close()
+        }
+        canvas.drawPath(wavePath, liquidPaint)
+
+        val pearlPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.rgb(22, 16, 14) }
+        val pearlHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.argb(120, 255, 255, 255) }
+        val pearlR = dp(3.2f)
+        val pearlPositions = listOf(
+            0.18f to 0.92f, 0.42f to 0.85f, 0.82f to 0.90f,
+            0.30f to 0.72f, 0.68f to 0.75f, 0.55f to 0.95f,
+        )
+        for ((fx, fy) in pearlPositions) {
+            val cx = cupLeft + cupW * fx
+            val cy = cupTop + cupH * fy
+            if (cy < liquidTop - dp(2f)) continue
+            canvas.drawCircle(cx, cy, pearlR, pearlPaint)
+            canvas.drawCircle(cx - pearlR * 0.3f, cy - pearlR * 0.3f, pearlR * 0.3f, pearlHighlight)
+        }
+
+        val shinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.argb(40, 255, 255, 255) }
+        canvas.drawRoundRect(
+            RectF(cupLeft + dp(3f), cupTop + dp(2f), cupLeft + dp(6f), cupBottom - dp(4f)),
+            dp(1.5f), dp(1.5f), shinePaint,
+        )
+
+        canvas.restore()
+    }
+
+    val cupStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1.4f)
+        this.color = Color.argb(140, 255, 255, 255)
+    }
+    canvas.drawPath(cupPath, cupStroke)
+
+    val lidPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.argb(46, 255, 255, 255) }
+    val lidStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1.2f)
+        this.color = Color.argb(140, 255, 255, 255)
+    }
+    val lidRect = RectF(cupLeft - dp(2f), cupTop - dp(3f), cupRight + dp(2f), cupTop + dp(1f))
+    canvas.drawRoundRect(lidRect, dp(2f), dp(2f), lidPaint)
+    canvas.drawRoundRect(lidRect, dp(2f), dp(2f), lidStroke)
+
+    return bmp
+}
+
+// ─── Claude the Robo-Pet bitmap ──────────────────────────────────────
+
+// Mirrors the showcase's "Claude the Robo-Pet" mascot concept (frontend/
+// widgets_showcase.html): a head with a screen, eyes that change per state,
+// and a small badge ("Z" while sleeping, "ALARM" while in danger). Static
+// per refresh — the CSS bob/type/shiver animations don't translate to a
+// RemoteViews bitmap.
+private fun buildMascotBitmap(state: String, color: Int, ctx: Context): Bitmap {
+    val density = ctx.resources.displayMetrics.density
+    fun dp(v: Float) = v * density
+
+    val w = dp(70f).toInt().coerceIn(1, 300)
+    val h = dp(62f).toInt().coerceIn(1, 300)
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+
+    val headW = dp(52f)
+    val headH = dp(40f)
+    val headLeft = (w - headW) / 2f
+    val headTop = dp(16f)
+    val headRect = RectF(headLeft, headTop, headLeft + headW, headTop + headH)
+    val headRadius = dp(11f)
+
+    val earsPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.argb(20, 255, 255, 255) }
+    canvas.drawRoundRect(
+        RectF(headLeft - dp(2f), headTop - dp(7f), headLeft + headW + dp(2f), headTop - dp(1f)),
+        dp(3f), dp(3f), earsPaint,
+    )
+
+    val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.parseColor("#141416") }
+    val headStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1.3f)
+        this.color = Color.argb(140, 255, 255, 255)
+    }
+    canvas.drawRoundRect(headRect, headRadius, headRadius, headPaint)
+    canvas.drawRoundRect(headRect, headRadius, headRadius, headStroke)
+
+    val screenW = dp(34f)
+    val screenH = dp(22f)
+    val screenLeft = headLeft + (headW - screenW) / 2f
+    val screenTop = headTop + (headH - screenH) / 2f
+    val screenRect = RectF(screenLeft, screenTop, screenLeft + screenW, screenTop + screenH)
+    val screenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.parseColor("#070709") }
+    canvas.drawRoundRect(screenRect, dp(5f), dp(5f), screenPaint)
+
+    val cx1 = screenRect.centerX() - dp(6.5f)
+    val cx2 = screenRect.centerX() + dp(6.5f)
+    val cy = screenRect.centerY()
+
+    when (state) {
+        "idle" -> {
+            val eyePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.argb(110, 242, 242, 243) }
+            for (cx in listOf(cx1, cx2)) {
+                canvas.drawRoundRect(RectF(cx - dp(3.5f), cy - dp(1f), cx + dp(3.5f), cy + dp(1f)), dp(1f), dp(1f), eyePaint)
+            }
+            val zPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = Color.argb(140, 242, 242, 243)
+                typeface = Typeface.DEFAULT_BOLD
+            }
+            zPaint.textSize = dp(9f)
+            canvas.drawText("Z", headLeft + headW - dp(4f), headTop - dp(5f), zPaint)
+            zPaint.textSize = dp(6.5f)
+            canvas.drawText("z", headLeft + headW + dp(3f), headTop - dp(1f), zPaint)
+        }
+        "safe" -> {
+            val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; alpha = 70 }
+            val eyePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+            for (cx in listOf(cx1, cx2)) {
+                canvas.drawCircle(cx, cy, dp(4.2f), glowPaint)
+                canvas.drawCircle(cx, cy, dp(2.6f), eyePaint)
+            }
+        }
+        "warning" -> {
+            val eyePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+            for (cx in listOf(cx1, cx2)) {
+                canvas.drawRoundRect(RectF(cx - dp(3f), cy - dp(2f), cx + dp(3f), cy + dp(2f)), dp(0.8f), dp(0.8f), eyePaint)
+            }
+            val sweatPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.parseColor("#8BB4FF") }
+            val sx = headLeft + headW + dp(1f)
+            val sy = headTop + dp(6f)
+            val sweatPath = Path().apply {
+                moveTo(sx, sy)
+                quadTo(sx + dp(3f), sy + dp(5f), sx, sy + dp(9f))
+                quadTo(sx - dp(3f), sy + dp(5f), sx, sy)
+                close()
+            }
+            canvas.drawPath(sweatPath, sweatPaint)
+        }
+        else -> { // danger
+            val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; alpha = 90 }
+            val eyePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+            for (cx in listOf(cx1, cx2)) {
+                canvas.drawCircle(cx, cy, dp(5f), glowPaint)
+                canvas.drawCircle(cx, cy, dp(3.2f), eyePaint)
+            }
+            val badgeText = "ALARM"
+            val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = Color.parseColor("#070709")
+                typeface = Typeface.DEFAULT_BOLD
+                textSize = dp(7f)
+            }
+            val textW = textPaint.measureText(badgeText)
+            val badgeRect = RectF(headLeft - dp(2f), dp(1f), headLeft - dp(2f) + textW + dp(8f), dp(1f) + dp(11f))
+            canvas.drawRoundRect(badgeRect, dp(3f), dp(3f), badgePaint)
+            canvas.drawText(badgeText, badgeRect.left + dp(4f), badgeRect.bottom - dp(3f), textPaint)
+        }
+    }
+
+    return bmp
+}
+
+private fun mascotStatusText(pct: Int): String = when {
+    pct == 0 -> "Sleeping · 0%"
+    pct < 60 -> "Active · $pct%"
+    pct < 85 -> "Focused · $pct%"
+    else     -> "Alert · $pct%"
 }
 
 // ─── Small (2×2) ──────────────────────────────────────────────────
@@ -250,13 +480,14 @@ class SessionSenseWidgetSmall : AppWidgetProvider() {
             val v = RemoteViews(ctx.packageName, R.layout.widget_small)
 
             v.setTextViewText(R.id.widget_session_pct,
-                if (d.sessionPct > 0) "${d.sessionPct}" else "--")
+                if (d.sessionPct > 0) "${d.sessionPct}%" else "--")
             v.setTextColor(R.id.widget_session_pct, color)
 
             v.setTextViewText(R.id.widget_weekly_pct,
                 if (d.weeklyPct > 0) "${d.weeklyPct}%" else "--%")
 
-            v.applySessionBar(d.sessionPct)
+            val ring = buildProgressRing(d.sessionPct, color, ctx, sizeDp = 72, strokeDp = 6f)
+            v.setImageViewBitmap(R.id.widget_session_ring, ring)
 
             // Dim the live dot when data is stale. setAlpha(float) is a
             // @RemotableViewMethod, so setFloat is safe; setInt("setAlpha") is NOT
@@ -284,7 +515,7 @@ class SessionSenseWidgetMedium : AppWidgetProvider() {
             v.setTextColor(R.id.widget_status_pill, color)
 
             // Countdown
-            v.setTextViewText(R.id.widget_session_remaining, fmtCountdown(d.sessionReset))
+            applyCountdown(v, R.id.widget_session_remaining, d.sessionReset, "0:00")
             v.setTextColor(R.id.widget_session_remaining, color)
 
             // Session % + reset
@@ -294,8 +525,9 @@ class SessionSenseWidgetMedium : AppWidgetProvider() {
             v.setTextViewText(R.id.widget_session_reset,
                 "resets ${fmtResetShort(d.sessionReset)}")
 
-            // Session progress bars (state-colored)
-            v.applySessionBar(d.sessionPct)
+            // Activity ring around the countdown (sweep = % session used)
+            val ring = buildProgressRing(d.sessionPct, color, ctx, sizeDp = 66, strokeDp = 5f)
+            v.setImageViewBitmap(R.id.widget_session_ring, ring)
 
             // Weekly
             v.setTextViewText(R.id.widget_weekly_pct,
@@ -324,11 +556,18 @@ class SessionSenseWidgetLarge : AppWidgetProvider() {
             v.setTextViewText(R.id.widget_status_pill, statePillText(d.sessionPct))
             v.setTextColor(R.id.widget_status_pill, color)
 
-            // Countdown (padded: 03:45:00)
-            v.setTextViewText(R.id.widget_session_remaining, fmtCountdownPadded(d.sessionReset))
+            // Countdown
+            applyCountdown(v, R.id.widget_session_remaining, d.sessionReset, "00:00:00")
             v.setTextColor(R.id.widget_session_remaining, color)
             v.setTextViewText(R.id.widget_session_reset,
                 "resets at ${fmtResetShort(d.sessionReset)}")
+
+            // Session % + activity ring (sweep = % session used)
+            v.setTextViewText(R.id.widget_session_pct,
+                if (d.sessionPct > 0) "${d.sessionPct}% used" else "Not started")
+            v.setTextColor(R.id.widget_session_pct, color)
+            val ring = buildProgressRing(d.sessionPct, color, ctx, sizeDp = 112, strokeDp = 8f)
+            v.setImageViewBitmap(R.id.widget_session_ring, ring)
 
             // Weekly
             v.setTextViewText(R.id.widget_weekly_pct,
@@ -346,6 +585,48 @@ class SessionSenseWidgetLarge : AppWidgetProvider() {
             // Bar chart
             val chart = buildBarChart(d.dailyPeaks, color, ctx)
             v.setImageViewBitmap(R.id.widget_bar_chart, chart)
+
+            mgr.updateAppWidget(id, v)
+        }
+    }
+}
+
+// ─── Boba Energy Cup (2×2) ────────────────────────────────────────
+
+class SessionSenseWidgetBoba : AppWidgetProvider() {
+    override fun onUpdate(ctx: Context, mgr: AppWidgetManager, ids: IntArray) {
+        val d = loadData(ctx)
+        val color = stateColor(d.sessionPct)
+        for (id in ids) {
+            val v = RemoteViews(ctx.packageName, R.layout.widget_boba)
+
+            val cup = buildBobaBitmap(d.sessionPct, color, ctx)
+            v.setImageViewBitmap(R.id.widget_boba_cup, cup)
+
+            v.setTextViewText(R.id.widget_boba_val,
+                if (d.sessionPct > 0 || d.isLive) "${d.sessionPct}%" else "--%")
+            v.setTextColor(R.id.widget_boba_val, color)
+
+            mgr.updateAppWidget(id, v)
+        }
+    }
+}
+
+// ─── Claude the Robo-Pet (2×2) ────────────────────────────────────
+
+class SessionSenseWidgetMascot : AppWidgetProvider() {
+    override fun onUpdate(ctx: Context, mgr: AppWidgetManager, ids: IntArray) {
+        val d = loadData(ctx)
+        val state = stateOf(d.sessionPct)
+        val color = stateColor(d.sessionPct)
+        for (id in ids) {
+            val v = RemoteViews(ctx.packageName, R.layout.widget_mascot)
+
+            val face = buildMascotBitmap(state, color, ctx)
+            v.setImageViewBitmap(R.id.widget_mascot_face, face)
+
+            v.setTextViewText(R.id.widget_mascot_status, mascotStatusText(d.sessionPct))
+            v.setTextColor(R.id.widget_mascot_status, color)
 
             mgr.updateAppWidget(id, v)
         }
