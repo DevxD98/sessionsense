@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_history">Open history</string>
+    <string name="shortcut_reconnect">Reconnect account</string>
+    <string name="widget_desc_small">Your 5-hour session ring and time left</string>
+    <string name="widget_desc_medium">Session, weekly and Opus activity rings</string>
+    <string name="widget_desc_large">Activity rings plus today’s usage curve</string>
+</resources>

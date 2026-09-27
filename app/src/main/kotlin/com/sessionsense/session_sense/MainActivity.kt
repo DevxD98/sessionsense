@@ -1,33 +1,34 @@
 package com.sessionsense.session_sense
 
-import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.MethodChannel
+import android.content.Intent
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.runtime.mutableStateOf
 
-class MainActivity : FlutterActivity() {
+class MainActivity : ComponentActivity() {
+    private val viewModel by viewModels<AppViewModel>()
+    // A notification tap on a running app arrives through onNewIntent, not onCreate.
+    private val launchAction = mutableStateOf<String?>(null)
 
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "startWidgetPoller" -> {
-                        val sk  = call.argument<String>("sessionKey") ?: return@setMethodCallHandler result.error("MISSING", "sessionKey required", null)
-                        val org = call.argument<String>("orgId")      ?: return@setMethodCallHandler result.error("MISSING", "orgId required", null)
-                        WidgetPollerService.start(applicationContext, sk, org)
-                        result.success(null)
-                    }
-                    "stopWidgetPoller" -> {
-                        WidgetPollerService.stop(applicationContext)
-                        result.success(null)
-                    }
-                    else -> result.notImplemented()
-                }
-            }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        if (savedInstanceState == null) launchAction.value = intent.action
+        setContent { SessionSenseTheme { SessionSenseRoot(viewModel, launchAction.value) { launchAction.value = null } } }
     }
 
-    companion object {
-        const val CHANNEL = "com.sessionsense/widget_poller"
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == ACTION_OPEN_UPDATE) launchAction.value = intent.action
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // A background start may have been refused by the OS; the app is in the foreground now, so this one is allowed.
+        if ((application as SessionSenseApp).credentials.hasConnected()) UsagePollingService.start(this)
     }
 }
