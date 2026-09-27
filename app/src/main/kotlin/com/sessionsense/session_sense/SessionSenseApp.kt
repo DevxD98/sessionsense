@@ -12,6 +12,8 @@ class SessionSenseApp : Application() {
     lateinit var database: SessionDatabase
     lateinit var repository: SessionRepository
     lateinit var credentials: CredentialStore
+    /** GitHub Releases self-updater in sideload builds, null in play builds. */
+    val updates: UpdateController? by lazy { UpdateFeature.create(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -24,6 +26,7 @@ class SessionSenseApp : Application() {
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build(),
         )
         if (credentials.hasConnected()) UsagePollingService.start(this)
+        updates?.onAppStart()
     }
 }
 
@@ -32,6 +35,7 @@ class RecoveryWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val app = applicationContext as SessionSenseApp
         if (app.credentials.hasConnected()) UsagePollingService.start(app)
         NotificationCenter(app).maybeSendWeeklyDigest(app.database.sessions())
+        app.updates?.onPeriodicTick()
         return Result.success()
     }
 }

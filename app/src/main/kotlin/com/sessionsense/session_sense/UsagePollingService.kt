@@ -26,7 +26,7 @@ class UsagePollingService : Service() {
         super.onCreate()
         app = application as SessionSenseApp
         notifications = NotificationCenter(this)
-        startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(UsageSnapshot(), null))
+        showOngoing(UsageSnapshot(), null)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -203,9 +203,12 @@ class UsagePollingService : Service() {
         }
     }
 
-    private suspend fun persist(account: Account, value: UsageSnapshot, active: Boolean, label: String?) {
+    private suspend fun persist(account: Account, reported: UsageSnapshot, active: Boolean, label: String?) {
         val k = AccountKeys(account.id)
         val old = app.repository.preferences()
+        // Pin each window's reset time: alert keys, stored flags and the displayed time must not move with API jitter.
+        val value = reported.copy(sessionResetMs = stableReset(old[k.SESSION_RESET] ?: 0, reported.sessionResetMs),
+            weeklyResetMs = stableReset(old[k.WEEKLY_RESET] ?: 0, reported.weeklyResetMs))
         val transition = SessionTransition.apply(
             TrackingState(old[k.PREV_SESSION] ?: 0, old[k.ACTIVE_START] ?: 0, old[k.ACTIVE_PEAK] ?: 0, old[k.ACTIVE_RESET] ?: 0),
             value.sessionPct, value.sessionResetMs, value.lastUpdatedMs,
@@ -240,8 +243,18 @@ class UsagePollingService : Service() {
         refreshActiveSurfaces(account, label)
     }
 
+    private var shownOngoing: OngoingContent? = null
+
+    /** Re-posts the live notification only when its content changes: every post makes the Nothing Glyph flash. */
+    private fun showOngoing(snapshot: UsageSnapshot, label: String?) {
+        val content = ongoingContent(snapshot, label, System.currentTimeMillis())
+        if (content == shownOngoing) return
+        shownOngoing = content
+        startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(content))
+    }
+
     private suspend fun refreshActiveSurfaces(account: Account, label: String?) {
-        startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(app.repository.snapshot(), label))
+        showOngoing(app.repository.snapshot(), label)
         SessionSenseWidgets.updateAll(this)
     }
 
@@ -278,6 +291,22 @@ object UsageParser {
     }
 }
 
+/** Everything the live notification shows. Equal content means there is nothing to re-post. */
+data class OngoingContent(val title: String, val text: String, val pct: Int, val indeterminate: Boolean, val countdownToMs: Long)
+
+fun ongoingContent(s: UsageSnapshot, account: String?, now: Long, zone: ZoneId = ZoneId.systemDefault()): OngoingContent {
+    val live = s.sessionWindow && s.sessionPct > 0 && s.sessionResetMs > now
+    val text = when {
+        s.connection == "expired" -> "Session expired — open to reconnect"
+        !s.sessionWindow -> "Weekly ${s.weeklyPct}% used"
+        s.sessionPct > 0 && s.sessionResetMs > 0 -> "${s.sessionPct}% used · resets ${Instant.ofEpochMilli(s.sessionResetMs).atZone(zone).format(DateTimeFormatter.ofPattern("h:mm a"))}"
+        s.sessionPct > 0 -> "${s.sessionPct}% used"
+        else -> "Full 5-hour window available"
+    }
+    return OngoingContent(if (account != null) "SessionSense · $account" else "SessionSense", text, s.sessionPct, s.connection != "connected",
+        if (live && s.connection != "expired") s.sessionResetMs else 0L)
+}
+
 class NotificationCenter(private val context: Context) {
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val app get() = context.applicationContext as SessionSenseApp
@@ -288,19 +317,15 @@ class NotificationCenter(private val context: Context) {
         manager.createNotificationChannel(NotificationChannel(DIGEST_CHANNEL, "Weekly digest", NotificationManager.IMPORTANCE_DEFAULT))
     }
 
-    fun ongoing(s: UsageSnapshot, account: String?): Notification {
-        val remaining = (s.sessionResetMs - System.currentTimeMillis()).coerceAtLeast(0)
-        val text = when {
-            s.connection == "expired" -> "Session expired — open to reconnect"
-            !s.sessionWindow -> "Weekly ${s.weeklyPct}% used"
-            s.sessionPct > 0 -> "${s.sessionPct}% used · ${formatDuration(remaining)} left"
-            else -> "Full 5-hour window available"
-        }
-        val builder = base(ONGOING_CHANNEL).setContentTitle(if (account != null) "SessionSense · $account" else "SessionSense").setContentText(text).setOngoing(true).setOnlyAlertOnce(true)
+    fun ongoing(c: OngoingContent): Notification {
+        val builder = base(ONGOING_CHANNEL).setContentTitle(c.title).setContentText(c.text).setOngoing(true).setOnlyAlertOnce(true)
+        // The system ticks the countdown itself, so the notification doesn't have to be re-posted every minute.
+        if (c.countdownToMs > 0) builder.setWhen(c.countdownToMs).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true)
+        else builder.setShowWhen(false)
         if (Build.VERSION.SDK_INT >= 36) {
-            builder.setStyle(Notification.ProgressStyle().setProgress(s.sessionPct)
-                .addProgressSegment(Notification.ProgressStyle.Segment(100).setColor(accent(s.sessionPct))))
-        } else builder.setProgress(100, s.sessionPct, s.connection != "connected")
+            builder.setStyle(Notification.ProgressStyle().setProgress(c.pct)
+                .addProgressSegment(Notification.ProgressStyle.Segment(100).setColor(accent(c.pct))))
+        } else builder.setProgress(100, c.pct, c.indeterminate)
         return builder.build()
     }
 
@@ -364,16 +389,13 @@ class NotificationCenter(private val context: Context) {
     }
 
     private fun alert(id: Int, title: String, body: String, low: Boolean = false) {
-        manager.notify(id, base(if (low) ONGOING_CHANNEL else ALERT_CHANNEL).setContentTitle(title).setContentText(body).setAutoCancel(true).build())
+        // Belt and braces: re-posting an alert that's still showing updates it silently (no sound, vibration or Glyph).
+        manager.notify(id, base(if (low) ONGOING_CHANNEL else ALERT_CHANNEL).setContentTitle(title).setContentText(body).setAutoCancel(true).setOnlyAlertOnce(true).build())
     }
     private fun base(channel: String) = Notification.Builder(context, channel)
         .setSmallIcon(android.R.drawable.stat_notify_sync).setColor(Color.rgb(110, 231, 208)).setContentIntent(
             PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-    private fun quiet(s: UserSettings): Boolean {
-        if (!s.quietHours) return false
-        val h = LocalTime.now().hour
-        return if (s.quietStart < s.quietEnd) h in s.quietStart until s.quietEnd else h >= s.quietStart || h < s.quietEnd
-    }
+    private fun quiet(s: UserSettings) = isQuietHour(s.quietHours, s.quietStart, s.quietEnd, LocalTime.now().hour)
     private fun accent(pct: Int) = when { pct >= 85 -> Color.rgb(244,138,122); pct >= 60 -> Color.rgb(244,199,122); else -> Color.rgb(110,231,208) }
     private fun formatTime(ms: Long) = if (ms <= 0) "soon" else Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("EEE h:mm a"))
     private fun formatDuration(ms: Long): String { val m = ms / 60_000; return "${m / 60}h ${m % 60}m" }

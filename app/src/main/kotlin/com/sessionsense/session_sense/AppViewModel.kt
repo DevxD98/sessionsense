@@ -47,6 +47,8 @@ data class AppUiState(
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as SessionSenseApp
+    /** The self-updater (sideload builds only); the UI reads its state and calls its actions directly. */
+    val updates: UpdateController? get() = app.updates
     private val ticker = flow { while (true) { emit(System.currentTimeMillis()); delay(1_000) } }
     // Derived off the main thread and only when samples/sessions change, not on every 1s tick.
     private val history = combine(app.repository.samplesSince(System.currentTimeMillis() - 14 * 86_400_000L), app.repository.sessions) { samples, sessions ->

@@ -53,19 +53,19 @@ import kotlin.math.*
 // outfit.ttf is a variable font whose default instance is Thin (100); pin each weight to its wght axis.
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
 private fun outfit(weight: Int) = Font(R.font.outfit, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
-private val Outfit = FontFamily(outfit(300), outfit(400), outfit(500), outfit(600), outfit(700))
-private val PlexMono = FontFamily(Font(R.font.ibm_plex_mono))
+internal val Outfit = FontFamily(outfit(300), outfit(400), outfit(500), outfit(600), outfit(700))
+internal val PlexMono = FontFamily(Font(R.font.ibm_plex_mono))
 
 // Muted ≈ 9.5:1 and Faint ≈ 5.6:1 against Bg; both stay above 4.5:1 on the frosted cards.
 val Bg = Color(0xFF0B0B0D); val Surface = Color(0xFF16161A); val Surface2 = Color(0xFF24242A)
 val Text = Color(0xFFF2F2F3); val Muted = Color(0xFFB4B4BB); val Faint = Color(0xFF8E8E96)
 val Teal = Color(0xFF6EE7D0); val Amber = Color(0xFFF4C77A); val Coral = Color(0xFFF48A7A); val Blue = Color(0xFF8BB4FF)
-private val Hairline = Color.White.copy(alpha = .09f)
+internal val Hairline = Color.White.copy(alpha = .09f)
 private val TealContainer = Teal.copy(alpha = .20f).compositeOver(Surface)
 
 // Spacing scale: 8 / 12 / 16 / 24 / 32.
-private val S1 = 8.dp; private val S2 = 12.dp; private val S3 = 16.dp; private val S4 = 24.dp; private val S5 = 32.dp
-private val Gutter = 20.dp
+internal val S1 = 8.dp; internal val S2 = 12.dp; internal val S3 = 16.dp; internal val S4 = 24.dp; internal val S5 = 32.dp
+internal val Gutter = 20.dp
 private val TabBarHeight = 64.dp
 
 private val CardGlass = HazeStyle(backgroundColor = Bg, tint = HazeTint(Surface.copy(alpha = .60f)), blurRadius = 24.dp, noiseFactor = .04f, fallbackTint = HazeTint(Surface.copy(alpha = .92f)))
@@ -74,8 +74,8 @@ private val BarGlass = HazeStyle(backgroundColor = Bg, tint = HazeTint(Surface.c
 private val LocalHazeState = staticCompositionLocalOf<HazeState?> { null }
 private val LocalRingAnchor = staticCompositionLocalOf<MutableState<Offset?>?> { null }
 
-private fun <T> ringSpring() = spring<T>(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow)
-private fun <T> smooth(visibilityThreshold: T? = null) = spring(dampingRatio = .82f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = visibilityThreshold)
+internal fun <T> ringSpring() = spring<T>(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow)
+internal fun <T> smooth(visibilityThreshold: T? = null) = spring(dampingRatio = .82f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = visibilityThreshold)
 
 @Composable fun SessionSenseTheme(content: @Composable () -> Unit) {
     // MaterialKolor still supplies the tonal ramp, but every role a stock component can pick up is pinned to
@@ -107,13 +107,15 @@ private fun <T> smooth(visibilityThreshold: T? = null) = spring(dampingRatio = .
     }
 }
 
-@Composable fun SessionSenseRoot(vm: AppViewModel, launchAction: String?) {
+@Composable fun SessionSenseRoot(vm: AppViewModel, launchAction: String?, onLaunchActionHandled: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     var splash by rememberSaveable { mutableStateOf(true) }
     Crossfade(splash, animationSpec = spring(stiffness = Spring.StiffnessLow), label = "splash") { showSplash ->
         if (showSplash) Splash { splash = false }
-        else if (state.settings.route == "onboarding") Onboarding(vm, state)
-        else MainShell(vm, state, if (launchAction == "com.sessionsense.OPEN_HISTORY") "history" else if (launchAction == "com.sessionsense.RECONNECT") "settings" else "home")
+        else UpdateHost(vm.updates, launchAction == ACTION_OPEN_UPDATE, onLaunchActionHandled) {
+            if (state.settings.route == "onboarding") Onboarding(vm, state)
+            else MainShell(vm, state, if (launchAction == "com.sessionsense.OPEN_HISTORY") "history" else if (launchAction == "com.sessionsense.RECONNECT") "settings" else "home")
+        }
     }
 }
 
@@ -150,7 +152,7 @@ private fun <T> smooth(visibilityThreshold: T? = null) = spring(dampingRatio = .
 }
 
 /** Clickable surface with the Flutter app's Pressable feel: scales to 0.97 while held, springs back on release. */
-@Composable private fun Pressable(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, role: Role = Role.Button, contentAlignment: Alignment = Alignment.TopStart, content: @Composable BoxScope.() -> Unit) {
+@Composable internal fun Pressable(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, role: Role = Role.Button, contentAlignment: Alignment = Alignment.TopStart, content: @Composable BoxScope.() -> Unit) {
     val source = remember { MutableInteractionSource() }
     val scale = pressScale(source)
     Box(Modifier.graphicsLayer { scaleX = scale; scaleY = scale }.then(modifier).clickable(source, indication = null, enabled = enabled, role = role, onClick = onClick), contentAlignment = contentAlignment, content = content)
@@ -205,13 +207,13 @@ enum class CapsuleStyle { Primary, Secondary, Destructive }
 }
 
 /** A single radial wash anchored behind the hero ring (or screen-top when there is no ring), fading to the base colour. */
-@Composable private fun Backdrop(modifier: Modifier, glow: Color, intensity: Float, anchor: (Size) -> Offset?) = Canvas(modifier) {
+@Composable internal fun Backdrop(modifier: Modifier, glow: Color, intensity: Float, anchor: (Size) -> Offset?) = Canvas(modifier) {
     drawRect(Bg)
     val c = anchor(size) ?: Offset(size.width / 2f, size.height * .36f)
     drawRect(Brush.radialGradient(0f to glow.copy(alpha = .22f * intensity), .4f to glow.copy(alpha = .08f * intensity), 1f to Color.Transparent, center = c, radius = size.width * .95f))
 }
 
-@Composable private fun Card(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, padding: Dp = S3, horizontalAlignment: Alignment.Horizontal = Alignment.Start, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun Card(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, padding: Dp = S3, horizontalAlignment: Alignment.Horizontal = Alignment.Start, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(22.dp); val haze = LocalHazeState.current
     val glass = if (haze != null) Modifier.hazeEffect(haze, CardGlass) else Modifier.background(Surface.copy(alpha = .9f))
     val body = Modifier.fillMaxWidth().clip(shape).then(glass).border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .13f), Color.White.copy(alpha = .04f))), shape).padding(padding)
@@ -219,9 +221,9 @@ enum class CapsuleStyle { Primary, Secondary, Destructive }
     else Pressable(onClick, modifier) { Column(body, horizontalAlignment = horizontalAlignment, content = content) }
 }
 
-@Composable private fun Label(value: String, modifier: Modifier = Modifier, color: Color = Faint) = Text(value, modifier, color = color, fontFamily = Outfit, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
-@Composable private fun SectionLabel(value: String) { Label(value, modifier = Modifier.padding(start = 4.dp, bottom = S2)) }
-@Composable private fun Banner(value: String, color: Color) = Text(value, color = color, fontWeight = FontWeight.Medium, modifier = Modifier.fillMaxWidth().padding(bottom = S3).background(color.copy(.12f), RoundedCornerShape(16.dp)).border(1.dp, color.copy(.3f), RoundedCornerShape(16.dp)).padding(S2))
+@Composable internal fun Label(value: String, modifier: Modifier = Modifier, color: Color = Faint) = Text(value, modifier, color = color, fontFamily = Outfit, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
+@Composable internal fun SectionLabel(value: String) { Label(value, modifier = Modifier.padding(start = 4.dp, bottom = S2)) }
+@Composable internal fun Banner(value: String, color: Color) = Text(value, color = color, fontWeight = FontWeight.Medium, modifier = Modifier.fillMaxWidth().padding(bottom = S3).background(color.copy(.12f), RoundedCornerShape(16.dp)).border(1.dp, color.copy(.3f), RoundedCornerShape(16.dp)).padding(S2))
 
 @Composable private fun Page(title: String, trailing: @Composable () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) = Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Gutter)) {
     Spacer(Modifier.height(S3))
@@ -397,9 +399,9 @@ private fun stateColor(state: String) = when (state) { "danger" -> Coral; "warni
 
 // ─── Glyphs (drawn, so no icon dependency) ─────────────────────────────────────────────────────────────
 
-private enum class GlyphKind { Ring, Bell, Chart, Lock, Shield, Globe, People, Clock, Chevron, Back, Check, Plus }
+internal enum class GlyphKind { Ring, Bell, Chart, Lock, Shield, Globe, People, Clock, Chevron, Back, Check, Plus, Download }
 
-@Composable private fun Glyph(kind: GlyphKind, color: Color, modifier: Modifier) = Canvas(modifier) {
+@Composable internal fun Glyph(kind: GlyphKind, color: Color, modifier: Modifier) = Canvas(modifier) {
     val w = size.minDimension; val sw = w * .1f
     fun o(x: Float, y: Float) = Offset(x * w, y * w)
     val stroke = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round)
@@ -432,6 +434,7 @@ private enum class GlyphKind { Ring, Bell, Chart, Lock, Shield, Globe, People, C
         GlyphKind.Back -> line(.62f to .24f, .36f to .5f, .62f to .76f)
         GlyphKind.Check -> line(.24f to .52f, .42f to .7f, .78f to .32f)
         GlyphKind.Plus -> { line(.5f to .22f, .5f to .78f); line(.22f to .5f, .78f to .5f) }
+        GlyphKind.Download -> { line(.5f to .16f, .5f to .6f); line(.32f to .44f, .5f to .62f, .68f to .44f); line(.2f to .7f, .2f to .82f, .8f to .82f, .8f to .7f) }
     }
 }
 
@@ -521,6 +524,7 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
 
 @Composable private fun Home(vm: AppViewModel, s: AppUiState) = Page("SessionSense", trailing = { AccountChip(s) }) {
     if (s.usage.connection == "expired") { val shell = LocalShell.current; Pressable({ shell.reconnect(s.provider) }) { Banner("${s.activeAccount?.name ?: "This account"}’s session expired — tap to reconnect", Amber) } }
+    UpdatePill()
     SessionHero(s)
     Spacer(Modifier.height(S5))
     // Codex reports no per-model quotas: show its weekly window next to the plan it runs on.
@@ -924,6 +928,7 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
                 }
             }
         }
+        Spacer(Modifier.height(S4)); AboutSection(s.now)
         Spacer(Modifier.height(S4)); SectionLabel("ACCOUNT & DATA")
         Column(verticalArrangement = Arrangement.spacedBy(S2)) {
             if (s.canAddAccount) CapsuleButton("Add another account", shell.addAccount, style = CapsuleStyle.Secondary)
@@ -937,13 +942,13 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
     }
 }
 
-@Composable private fun Divider() = Box(Modifier.padding(start = S3).fillMaxWidth().height(1.dp).background(Hairline))
+@Composable internal fun Divider() = Box(Modifier.padding(start = S3).fillMaxWidth().height(1.dp).background(Hairline))
 
 @Composable private fun Chip(label: String, onClick: () -> Unit) = Pressable(onClick, Modifier.clip(CircleShape).background(Teal.copy(alpha = .12f)).border(1.dp, Teal.copy(alpha = .3f), CircleShape)) {
     Text(label, Modifier.padding(horizontal = 14.dp, vertical = 7.dp), color = Teal, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
 }
 
-@Composable private fun Toggle(label: String, checked: Boolean, set: (Boolean) -> Unit) {
+@Composable internal fun Toggle(label: String, checked: Boolean, set: (Boolean) -> Unit) {
     val haptics = LocalHapticFeedback.current
     val change = { v: Boolean -> haptics.performHapticFeedback(if (v) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff); set(v) }
     Row(Modifier.fillMaxWidth().selectable(checked, role = Role.Switch) { change(!checked) }.heightIn(min = 60.dp).padding(horizontal = S3), verticalAlignment = Alignment.CenterVertically) {

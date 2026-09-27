@@ -38,3 +38,14 @@ internal fun retainAlertFlags(flags: Set<String>, sessionResetMs: Long, weeklyRe
     flags.filterTo(mutableSetOf()) { key ->
         key.startsWith("digest:") || key.endsWith(":$sessionResetMs") || key.endsWith(":$weeklyResetMs")
     }
+
+// Real windows are hours (or a week) apart, so a reset that moves by less than this is the same window reporting noise.
+private const val RESET_JITTER_MS = 10 * 60_000L
+
+/**
+ * The reset time to store for a window: the stored one while the provider's value only jitters around it. Codex reports
+ * "resets in N seconds", which lands on a different millisecond every poll; since alert keys embed the reset time,
+ * an unstable value made every poll look like a new window and re-sent the same alert every few seconds.
+ */
+internal fun stableReset(stored: Long, reported: Long): Long =
+    if (stored > 0 && reported > 0 && kotlin.math.abs(reported - stored) <= RESET_JITTER_MS) stored else reported

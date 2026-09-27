@@ -9,6 +9,24 @@ def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 
+// Versioning: version.properties holds a semver versionName; versionCode is derived from it so the two can't drift.
+def versionProperties = new Properties()
+rootProject.file("version.properties").withInputStream { versionProperties.load(it) }
+def semverCode = { String name ->
+    def m = name =~ /^(\d+)\.(\d{1,3})\.(\d{1,3})$/
+    if (!m.matches()) throw new GradleException("version.properties: '$name' is not a MAJOR.MINOR.PATCH version (minor and patch at most 999).")
+    m.group(1).toInteger() * 1_000_000 + m.group(2).toInteger() * 1_000 + m.group(3).toInteger()
+}
+def appVersionName = versionProperties["versionName"] as String
+def appVersionCode = semverCode(appVersionName)
+def lastReleasedName = (versionProperties["lastReleasedVersionName"] ?: "0.0.0") as String
+// A release build of an already-published version would be an APK that can never install as an update.
+gradle.taskGraph.whenReady { graph ->
+    def releasing = graph.allTasks.any { it.project == project && it.name ==~ /(assemble|bundle|package)\w*Release/ }
+    if (releasing && appVersionCode <= semverCode(lastReleasedName))
+        throw new GradleException("versionName $appVersionName was already released (last release: $lastReleasedName). Bump version.properties, or run scripts/release.sh.")
+}
+
 android {
     namespace "com.sessionsense.session_sense"
     compileSdk 36
@@ -16,8 +34,19 @@ android {
         applicationId "com.sessionsense.session_sense"
         minSdk 26
         targetSdk 36
-        versionCode 1
-        versionName "1.0.0"
+        versionCode appVersionCode
+        versionName appVersionName
+    }
+    // sideload: the APK published on GitHub Releases, with the in-app updater (the default for builds and adb installs).
+    // play: no self-updater and no REQUEST_INSTALL_PACKAGES, as Play policy requires; ready for Play in-app updates later.
+    flavorDimensions "distribution"
+    productFlavors {
+        sideload {
+            dimension "distribution"
+            isDefault true
+            buildConfigField "String", "UPDATE_MANIFEST_URL", '"https://github.com/DevxD98/sessionsense-releases/releases/latest/download/update.json"'
+        }
+        play { dimension "distribution" }
     }
     signingConfigs {
         release {
@@ -39,7 +68,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose true }
+    buildFeatures { compose true; buildConfig true }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
@@ -70,3 +99,9 @@ dependencies {
     testImplementation "org.json:json:20240303"
 }
 kapt { correctErrorTypes true }
+
+// Flavors rename the variant tasks; keep the pre-flavor names working. Tests and lint cover both flavors,
+// installDebug installs the sideload build (the one on the phone).
+tasks.register("testDebugUnitTest") { group "verification"; dependsOn "testSideloadDebugUnitTest", "testPlayDebugUnitTest" }
+tasks.register("lintDebug") { group "verification"; dependsOn "lintSideloadDebug", "lintPlayDebug" }
+tasks.register("installDebug") { group "install"; dependsOn "installSideloadDebug" }
