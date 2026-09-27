@@ -1,33 +1,22 @@
 package com.sessionsense.session_sense
 
-import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.MethodChannel
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 
-class MainActivity : FlutterActivity() {
-
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "startWidgetPoller" -> {
-                        val sk  = call.argument<String>("sessionKey") ?: return@setMethodCallHandler result.error("MISSING", "sessionKey required", null)
-                        val org = call.argument<String>("orgId")      ?: return@setMethodCallHandler result.error("MISSING", "orgId required", null)
-                        WidgetPollerService.start(applicationContext, sk, org)
-                        result.success(null)
-                    }
-                    "stopWidgetPoller" -> {
-                        WidgetPollerService.stop(applicationContext)
-                        result.success(null)
-                    }
-                    else -> result.notImplemented()
-                }
-            }
+class MainActivity : ComponentActivity() {
+    private val viewModel by viewModels<AppViewModel>()
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent { SessionSenseTheme { SessionSenseRoot(viewModel, intent.action) } }
     }
 
-    companion object {
-        const val CHANNEL = "com.sessionsense/widget_poller"
+    override fun onStart() {
+        super.onStart()
+        // A background start may have been refused by the OS; the app is in the foreground now, so this one is allowed.
+        if ((application as SessionSenseApp).credentials.hasConnected()) UsagePollingService.start(this)
     }
 }

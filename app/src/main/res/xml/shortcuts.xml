@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="history" android:enabled="true" android:shortcutShortLabel="@string/shortcut_history"><intent android:action="com.sessionsense.OPEN_HISTORY" android:targetPackage="com.sessionsense.session_sense" android:targetClass="com.sessionsense.session_sense.MainActivity" /></shortcut>
+    <shortcut android:shortcutId="reconnect" android:enabled="true" android:shortcutShortLabel="@string/shortcut_reconnect"><intent android:action="com.sessionsense.RECONNECT" android:targetPackage="com.sessionsense.session_sense" android:targetClass="com.sessionsense.session_sense.MainActivity" /></shortcut>
+</shortcuts>
