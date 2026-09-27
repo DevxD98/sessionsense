@@ -95,6 +95,10 @@ data class UsageSnapshot(
     val weeklyResetMs: Long = 0,
     val lastUpdatedMs: Long = 0,
     val connection: String = "idle",
+    /** Plan reported by the provider (Codex only, e.g. "plus"); empty when unknown. */
+    val planType: String = "",
+    /** False when the provider reported no 5-hour window (Codex sometimes returns only the weekly one). */
+    val sessionWindow: Boolean = true,
 )
 
 data class UserSettings(
@@ -140,12 +144,14 @@ class AccountKeys(val accountId: String) {
     val ACTIVE_RESET = longPreferencesKey("${prefix}active_reset_ms")
     val LAST_SAMPLE = longPreferencesKey("${prefix}last_sample_ms")
     val ALERT_FLAGS = stringSetPreferencesKey("${prefix}alert_flags")
+    val PLAN_TYPE = stringPreferencesKey("${prefix}plan_type")
+    val SESSION_WINDOW = booleanPreferencesKey("${prefix}session_window")
 
     fun usage(p: Preferences) = UsageSnapshot(p[SESSION] ?: 0, p[WEEKLY] ?: 0, p[OPUS] ?: 0, p[SONNET] ?: 0,
-        p[SESSION_RESET] ?: 0, p[WEEKLY_RESET] ?: 0, p[UPDATED] ?: 0, p[CONNECTION] ?: "idle")
+        p[SESSION_RESET] ?: 0, p[WEEKLY_RESET] ?: 0, p[UPDATED] ?: 0, p[CONNECTION] ?: "idle", p[PLAN_TYPE] ?: "", p[SESSION_WINDOW] ?: true)
 
     fun clear(p: MutablePreferences) = listOf(PLAN, SESSION, WEEKLY, OPUS, SONNET, SESSION_RESET, WEEKLY_RESET, UPDATED, CONNECTION,
-        PREV_SESSION, ACTIVE_START, ACTIVE_PEAK, ACTIVE_RESET, LAST_SAMPLE, ALERT_FLAGS).forEach { p.remove(it) }
+        PREV_SESSION, ACTIVE_START, ACTIVE_PEAK, ACTIVE_RESET, LAST_SAMPLE, ALERT_FLAGS, PLAN_TYPE, SESSION_WINDOW).forEach { p.remove(it) }
 }
 
 data class AccountOverview(val account: Account, val usage: UsageSnapshot)

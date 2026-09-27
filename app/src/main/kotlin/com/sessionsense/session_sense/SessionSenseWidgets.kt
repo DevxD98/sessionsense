@@ -12,6 +12,14 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.SweepGradient
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapLatest
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
@@ -49,7 +57,8 @@ object SessionSenseWidgets {
         val repo = (context.applicationContext as SessionSenseApp).repository
         val s = repo.snapshot()
         val now = System.currentTimeMillis()
-        val signature = listOf(repo.activeId(), s.sessionPct, s.weeklyPct, s.opusPct, s.sonnetPct, s.connection, s.sessionResetMs, s.weeklyResetMs,
+        val accounts = (context.applicationContext as SessionSenseApp).credentials.accounts.value
+        val signature = listOf(repo.activeId(), accounts.size, s.sessionPct, s.weeklyPct, s.opusPct, s.sonnetPct, s.connection, s.sessionResetMs, s.weeklyResetMs, s.planType, s.sessionWindow,
             (s.sessionResetMs - now).coerceAtLeast(0) / 60_000, startOfDayMs()).joinToString()
         if (!force && signature == lastSignature) return
         lastSignature = signature
@@ -57,20 +66,36 @@ object SessionSenseWidgets {
     }
 }
 
-/** [account] is the viewed account's name, shown only when more than one account is tracked. */
-private class WidgetData(val usage: UsageSnapshot, val today: List<UsageSample>, val now: Long, val account: Account?)
+/** [account] is the viewed account, set only when more than one account is tracked (its name and provider are shown then). */
+private class WidgetData(val usage: UsageSnapshot, val today: List<UsageSample>, val now: Long, val account: Account?, val provider: Provider) {
+    val codex get() = provider == Provider.CODEX
+}
 
+private fun minuteTicker() = flow { while (true) { emit(System.currentTimeMillis()); delay(60_000 - System.currentTimeMillis() % 60_000) } }
+
+@OptIn(ExperimentalCoroutinesApi::class)
 private abstract class UsageWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val app = context.applicationContext as SessionSenseApp
-        val id = app.repository.activeId()
-        val accounts = app.credentials.accounts.value
-        val data = WidgetData(app.repository.snapshot(), if (this is LargeWidgetImpl) app.database.samples().since(id, startOfDayMs()) else emptyList(),
-            System.currentTimeMillis(), accounts.firstOrNull { it.id == id }?.takeIf { accounts.size > 1 })
+        val large = this is LargeWidgetImpl
         val click = actionStartActivity(Intent(context, MainActivity::class.java))
-        provideContent { Frame(context, click) { Content(context, data) } }
+        // Glance keeps a session alive between updates and only recomposes it, so the content follows the
+        // repository instead of a snapshot taken here; otherwise an account switch shows up only once the session ends.
+        val data = combine(app.repository.usage, app.repository.activeAccountId, app.credentials.accounts, minuteTicker()) { usage, active, accounts, now ->
+            Triple(usage, accounts, active) to now
+        }.mapLatest { (state, now) ->
+            val (usage, accounts, active) = state
+            val viewed = accounts.firstOrNull { it.id == active }
+            WidgetData(usage, if (large) app.database.samples().since(active, startOfDayMs()) else emptyList(), now,
+                viewed?.takeIf { accounts.size > 1 }, viewed?.provider ?: Provider.CLAUDE)
+        }
+        val initial = data.first()
+        provideContent {
+            val current by data.collectAsState(initial)
+            Frame(context, click) { Content(context, current) }
+        }
     }
 
     @Composable abstract fun ColumnScope.Content(context: Context, d: WidgetData)
@@ -81,11 +106,21 @@ private object SmallWidget : UsageWidget() {
         val s = d.usage; val size = LocalSize.current; val ring = (min(size.width.value, size.height.value) * .44f).coerceIn(52f, 84f)
         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Box(GlanceModifier.size(ring.dp), contentAlignment = Alignment.Center) {
-                Image(ImageProvider(rings(context, ring, listOf(sessionRing(s)), stroke = ring * .13f)), contentDescription = "Session ${s.sessionPct}% used", modifier = GlanceModifier.fillMaxSize())
-                Text("${s.sessionPct}%", style = style(WText, (ring * .19f).sp, FontWeight.Bold))
+                // With no 5-hour window reported (Codex, sometimes), the weekly window is all there is to show.
+                val (ringValue, pct) = if (s.sessionWindow) sessionRing(s) to s.sessionPct else weeklyRing(s) to s.weeklyPct
+                Image(ImageProvider(rings(context, ring, listOf(ringValue), stroke = ring * .13f)), contentDescription = "${if (s.sessionWindow) "Session" else "Weekly"} $pct% used", modifier = GlanceModifier.fillMaxSize())
+                Text("$pct%", style = style(WText, (ring * .19f).sp, FontWeight.Bold))
             }
             Spacer(GlanceModifier.defaultWeight())
-            if (d.account != null) AccountBadge(d.account, s) else StatusDot(s)
+            if (d.account != null) Column(horizontalAlignment = Alignment.End) {
+                AccountBadge(d.account, s)
+                Spacer(GlanceModifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ProviderLogo(d.provider, 10)
+                    Spacer(GlanceModifier.width(3.dp))
+                    Text(d.provider.label.uppercase(), style = style(WMuted, 9.sp, FontWeight.Bold), maxLines = 1)
+                }
+            } else StatusDot(s)
         }
         Spacer(GlanceModifier.defaultWeight())
         Text(headline(s, d.now), style = style(WText, 26.sp, FontWeight.Bold), maxLines = 1)
@@ -116,7 +151,7 @@ private class LargeWidgetImpl : UsageWidget() {
         Row(GlanceModifier.fillMaxWidth()) {
             Footer("RESETS", if (s.sessionPct > 0 && s.sessionResetMs > d.now) clockOf(s.sessionResetMs, "h:mm a") else "—", GlanceModifier.defaultWeight())
             Footer("WEEKLY RESET", if (s.weeklyResetMs > d.now) clockOf(s.weeklyResetMs, "EEE h a") else "—", GlanceModifier.defaultWeight())
-            Footer("SONNET", "${s.sonnetPct}%", GlanceModifier.defaultWeight())
+            if (d.codex) Footer("PLAN", planName(s), GlanceModifier.defaultWeight()) else Footer("SONNET", "${s.sonnetPct}%", GlanceModifier.defaultWeight())
         }
     }
 }
@@ -138,22 +173,28 @@ class SessionSenseWidgetLarge : GlanceAppWidgetReceiver() { override val glanceA
 @Composable private fun RingsWithLegend(context: Context, d: WidgetData, ring: Float) {
     val s = d.usage
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Image(ImageProvider(rings(context, ring, listOf(sessionRing(s), Ring(s.weeklyPct / 100f, lerp(Blue, Text, .35f), Blue), Ring(s.opusPct / 100f, lerp(Amber, Text, .3f), Amber)), stroke = ring * .105f)),
-            contentDescription = "Session ${s.sessionPct}%, weekly ${s.weeklyPct}%, Opus ${s.opusPct}%", modifier = GlanceModifier.size(ring.dp))
+        // Codex has no per-model quota, so its third ring is dropped and the plan takes the Opus row.
+        val shown = if (d.codex) listOf(sessionRing(s), weeklyRing(s)) else listOf(sessionRing(s), weeklyRing(s), Ring(s.opusPct / 100f, lerp(Amber, Text, .3f), Amber))
+        Image(ImageProvider(rings(context, ring, shown, stroke = ring * .105f)),
+            contentDescription = if (d.codex) "Session ${s.sessionPct}%, weekly ${s.weeklyPct}%" else "Session ${s.sessionPct}%, weekly ${s.weeklyPct}%, Opus ${s.opusPct}%", modifier = GlanceModifier.size(ring.dp))
         Spacer(GlanceModifier.width(16.dp))
         Column(GlanceModifier.defaultWeight()) {
-            Legend(if (d.account != null) "Session · ${d.account.name}" else "Session", "${s.sessionPct}%", if (s.sessionPct > 0 && s.sessionResetMs > d.now) "${span(remaining(s, d.now))} left" else "ready", stateColor(s))
+            val session = if (d.account != null) "${d.provider.label} · ${d.account.name}" else "Session"
+            if (d.account != null) Row(verticalAlignment = Alignment.CenterVertically) { ProviderLogo(d.provider, 11); Spacer(GlanceModifier.width(4.dp)); Legend(session, null, null, stateColor(s)) }
+            if (s.sessionWindow) Legend(if (d.account != null) null else session, "${s.sessionPct}%", if (s.sessionPct > 0 && s.sessionResetMs > d.now) "${span(remaining(s, d.now))} left" else "ready", stateColor(s))
+            else Legend(if (d.account != null) null else session, "—", "no 5h window", Faint)
             Spacer(GlanceModifier.height(6.dp))
             Legend("Weekly", "${s.weeklyPct}%", if (s.weeklyResetMs > d.now) "resets ${clockOf(s.weeklyResetMs, "EEE")}" else null, Blue)
             Spacer(GlanceModifier.height(6.dp))
-            Legend("Opus", "${s.opusPct}%", null, Amber)
+            if (d.codex) Legend("Plan", planName(s), null, Text) else Legend("Opus", "${s.opusPct}%", null, Amber)
         }
     }
 }
 
-@Composable private fun Legend(label: String, value: String, detail: String?, color: Color) {
-    Text(label.uppercase(), style = style(WMuted, 10.sp, FontWeight.Bold))
-    Row(verticalAlignment = Alignment.Bottom) {
+/** A null [label] or [value] leaves that line out (the session label is drawn beside the provider logo instead). */
+@Composable private fun Legend(label: String?, value: String?, detail: String?, color: Color) {
+    if (label != null) Text(label.uppercase(), style = style(WMuted, 10.sp, FontWeight.Bold), maxLines = 1)
+    if (value != null) Row(verticalAlignment = Alignment.Bottom) {
         Text(value, style = style(ColorProvider(color), 19.sp, FontWeight.Bold))
         if (detail != null) Text("  $detail", style = style(WMuted, 11.sp, FontWeight.Medium), maxLines = 1)
     }
@@ -170,6 +211,10 @@ class SessionSenseWidgetLarge : GlanceAppWidgetReceiver() { override val glanceA
     }
 }
 
+@Composable private fun ProviderLogo(p: Provider, sizeDp: Int) = Image(
+    ImageProvider(if (p == Provider.CODEX) R.drawable.ic_provider_codex else R.drawable.ic_provider_claude), contentDescription = p.label,
+    modifier = GlanceModifier.size(sizeDp.dp))
+
 @Composable private fun StatusDot(s: UsageSnapshot) {
     val color = when (s.connection) { "connected" -> Teal; "expired" -> Coral; else -> Faint }
     Box(GlanceModifier.size(8.dp).cornerRadius(4.dp).background(color)) {}
@@ -185,15 +230,20 @@ private fun sessionRing(s: UsageSnapshot) = when {
     else -> Ring(s.sessionPct / 100f, Teal, lerp(Teal, Violet, .45f))
 }
 
+private fun weeklyRing(s: UsageSnapshot) = Ring(s.weeklyPct / 100f, lerp(Blue, Text, .35f), Blue)
+private fun planName(s: UsageSnapshot) = s.planType.trim().ifEmpty { "—" }.split('_', ' ').joinToString(" ") { it.replaceFirstChar(Char::uppercaseChar) }
+
 private fun remaining(s: UsageSnapshot, now: Long) = (s.sessionResetMs - now).coerceAtLeast(0)
 private fun span(ms: Long): String { val m = ms / 60_000; return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
 private fun headline(s: UsageSnapshot, now: Long) = when {
     s.connection == "expired" -> "Reconnect"
+    !s.sessionWindow -> "Weekly"
     s.sessionPct > 0 && s.sessionResetMs > now -> span(remaining(s, now))
     else -> "Full 5h"
 }
 private fun caption(s: UsageSnapshot, now: Long) = when {
     s.connection == "expired" -> "session expired"
+    !s.sessionWindow -> if (s.weeklyResetMs > now) "resets ${clockOf(s.weeklyResetMs, "EEE h a")}" else "no 5-hour window"
     s.sessionPct > 0 && s.sessionResetMs > now -> "left · resets ${clockOf(s.sessionResetMs, "h:mm a")}"
     else -> "ready to go"
 }

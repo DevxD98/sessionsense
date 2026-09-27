@@ -21,6 +21,9 @@ data class AppUiState(
 ) {
     val activeAccount get() = accounts.firstOrNull { it.account.id == activeAccountId }?.account
     val canAddAccount get() = accounts.size < CredentialStore.MAX_ACCOUNTS
+    val provider get() = activeAccount?.provider ?: Provider.CLAUDE
+    /** Both Claude and Codex accounts are tracked, so surfaces name the provider. */
+    val mixedProviders get() = accounts.map { it.account.provider }.distinct().size > 1
     val remainingMs get() = (usage.sessionResetMs - now).coerceAtLeast(0)
     val sessionState get() = when { usage.sessionPct >= 85 -> "danger"; usage.sessionPct >= 60 -> "warning"; usage.sessionPct > 0 -> "safe"; else -> "idle" }
     val todaySessions get() = sessions.filter { Instant.ofEpochMilli(it.startMs).atZone(ZoneId.systemDefault()).toLocalDate() == LocalDate.now() }
@@ -81,8 +84,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         SessionSenseWidgets.updateAll(app, force = true)
     }
 
-    /** Stores a claude.ai login and makes it the viewed account. Returns an error message when it can't be added. */
-    fun connected(login: ClaudeLogin): String? {
+    /** Stores a claude.ai or chatgpt.com login and makes it the viewed account. Returns an error message when it can't be added. */
+    fun connected(login: AccountLogin): String? {
         val account = app.credentials.upsert(login).getOrElse { return it.message }
         viewModelScope.launch {
             app.repository.setActive(account.id)

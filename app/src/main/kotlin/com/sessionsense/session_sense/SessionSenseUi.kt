@@ -329,6 +329,7 @@ private fun stateColor(state: String) = when (state) { "danger" -> Coral; "warni
         Reveal(3) { FeatureRow(GlyphKind.Globe, Teal, "Official claude.ai sign-in", "You log in on claude.ai itself. SessionSense never sees your password.") }
         Reveal(4) { FeatureRow(GlyphKind.Shield, Blue, "Encrypted on this device", "Only the session cookie and organisation ID are stored, and they never leave your phone.") }
         Reveal(5) { FeatureRow(GlyphKind.People, Amber, "Up to ${CredentialStore.MAX_ACCOUNTS} accounts", "Add a work and a personal account later and switch between them in a tap.") }
+        Reveal(6) { FeatureRow(GlyphKind.Plus, Text, logo = Provider.CODEX, title = "Codex limits too", body = "Use Codex on a ChatGPT plan? Add that account from the account switcher to track its 5-hour and weekly limits alongside Claude.") }
     }
     Spacer(Modifier.height(S4))
 }
@@ -351,8 +352,11 @@ private fun stateColor(state: String) = when (state) { "danger" -> Coral; "warni
 @Composable private fun OnboardingTitle(text: String) =
     Text(text, color = Text, fontSize = 34.sp, lineHeight = 39.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.6).sp, textAlign = TextAlign.Center)
 
-@Composable private fun FeatureRow(glyph: GlyphKind, color: Color, title: String, body: String) = Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-    Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(color.copy(alpha = .15f)), contentAlignment = Alignment.Center) { Glyph(glyph, color, Modifier.size(24.dp)) }
+/** [logo], when set, replaces the drawn [glyph] with that provider's mark. */
+@Composable private fun FeatureRow(glyph: GlyphKind, color: Color, title: String, body: String, logo: Provider? = null) = Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+    Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(color.copy(alpha = .15f)), contentAlignment = Alignment.Center) {
+        if (logo != null) ProviderLogo(logo, Modifier.size(24.dp)) else Glyph(glyph, color, Modifier.size(24.dp))
+    }
     Spacer(Modifier.width(S3))
     Column(Modifier.weight(1f)) {
         Text(title, color = Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
@@ -437,20 +441,26 @@ private data class Tab(val route: String, val label: String, val icon: Int)
 private val Tabs = listOf(Tab("home", "Home", R.drawable.ic_nav_home), Tab("history", "History", R.drawable.ic_nav_history), Tab("settings", "Settings", R.drawable.ic_nav_settings))
 private fun tabIndex(entry: NavBackStackEntry?) = Tabs.indexOfFirst { it.route == entry?.destination?.route }.coerceAtLeast(0)
 
-/** Shell-level actions any tab can trigger: the account sheet and the claude.ai login (add or reconnect). */
-private class ShellActions(val openAccounts: () -> Unit, val addAccount: () -> Unit, val reconnect: () -> Unit)
-private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}) }
+/**
+ * Shell-level actions any tab can trigger: the account sheet ([addAccount] opens it on the provider choice)
+ * and the provider's login, to add an account or reconnect one.
+ */
+private class ShellActions(val openAccounts: () -> Unit, val addAccount: () -> Unit, val signIn: (Provider) -> Unit, val reconnect: (Provider) -> Unit)
+private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {}) }
 
 @Composable private fun MainShell(vm: AppViewModel, state: AppUiState, start: String) {
-    var auth by rememberSaveable { mutableStateOf<String?>(null) } // "add" | "reconnect"
-    var accountsOpen by rememberSaveable { mutableStateOf(false) }
+    var auth by rememberSaveable { mutableStateOf<String?>(null) } // provider id of the login being shown
+    var accountsOpen by rememberSaveable { mutableStateOf<String?>(null) } // "list" | "add"
     if (auth != null) {
         // Always a clean WebView session: the one left over is usually a different account's.
-        ClaudeAuth(onConnected = { login -> vm.connected(login).also { if (it == null) auth = null } }, onClose = { auth = null }, freshLogin = true)
+        val done = { login: AccountLogin -> vm.connected(login).also { if (it == null) auth = null } }
+        if (Provider.of(auth) == Provider.CODEX) CodexAuth(onConnected = done, onClose = { auth = null }, freshLogin = true)
+        else ClaudeAuth(onConnected = done, onClose = { auth = null }, freshLogin = true)
         return
     }
-    val actions = remember { ShellActions(openAccounts = { accountsOpen = true }, addAccount = { accountsOpen = false; auth = "add" }, reconnect = { accountsOpen = false; auth = "reconnect" }) }
-    if (accountsOpen) AccountsSheet(vm, state, actions) { accountsOpen = false }
+    val actions = remember { ShellActions(openAccounts = { accountsOpen = "list" }, addAccount = { accountsOpen = "add" },
+        signIn = { accountsOpen = null; auth = it.id }, reconnect = { accountsOpen = null; auth = it.id }) }
+    accountsOpen?.let { mode -> AccountsSheet(vm, state, actions, startAdding = mode == "add") { accountsOpen = null } }
     CompositionLocalProvider(LocalShell provides actions) { ShellContent(vm, state, start) }
 }
 
@@ -510,10 +520,15 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}) }
 // ─── Home ──────────────────────────────────────────────────────────────────────────────────────────────
 
 @Composable private fun Home(vm: AppViewModel, s: AppUiState) = Page("SessionSense", trailing = { AccountChip(s) }) {
-    if (s.usage.connection == "expired") { val shell = LocalShell.current; Pressable(shell.reconnect) { Banner("${s.activeAccount?.name ?: "This account"}’s session expired — tap to reconnect", Amber) } }
+    if (s.usage.connection == "expired") { val shell = LocalShell.current; Pressable({ shell.reconnect(s.provider) }) { Banner("${s.activeAccount?.name ?: "This account"}’s session expired — tap to reconnect", Amber) } }
     SessionHero(s)
     Spacer(Modifier.height(S5))
-    Row(horizontalArrangement = Arrangement.spacedBy(S2)) { Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f)); Metric("Opus", s.usage.opusPct, Amber, Modifier.weight(1f)); Metric("Sonnet", s.usage.sonnetPct, Teal, Modifier.weight(1f)) }
+    // Codex reports no per-model quotas: show its weekly window next to the plan it runs on.
+    if (s.provider == Provider.CODEX) Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(S2)) {
+        Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f).fillMaxHeight())
+        PlanTile(s.usage.planType, s.usage.weeklyResetMs, s.now, Modifier.weight(1f).fillMaxHeight())
+    }
+    else Row(horizontalArrangement = Arrangement.spacedBy(S2)) { Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f)); Metric("Opus", s.usage.opusPct, Amber, Modifier.weight(1f)); Metric("Sonnet", s.usage.sonnetPct, Teal, Modifier.weight(1f)) }
     Spacer(Modifier.height(S2))
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -538,10 +553,22 @@ private val Violet = Color(0xFFB79BFF)
 private val AccountColors = listOf(Teal, Blue, Violet)
 private fun accountColor(s: AppUiState, id: String) = AccountColors[s.accounts.indexOfFirst { it.account.id == id }.coerceAtLeast(0) % AccountColors.size]
 
-/** Gradient monogram with a live-status dot, like a Contacts avatar. */
+private val ClaudeOrange = Color(0xFFD97757)
+private fun providerTint(p: Provider) = if (p == Provider.CODEX) Text else ClaudeOrange
+
+/** The provider's own mark (Claude spark, OpenAI blossom), in its brand colour. */
+@Composable private fun ProviderLogo(p: Provider, modifier: Modifier) =
+    Image(painterResource(if (p == Provider.CODEX) R.drawable.ic_provider_codex else R.drawable.ic_provider_claude), contentDescription = p.label, modifier = modifier)
+private fun providerName(p: Provider) = if (p == Provider.CODEX) "ChatGPT · Codex" else "Claude"
+
+/** Gradient monogram with a provider badge and a live-status dot, like a Contacts avatar. */
 @Composable private fun Avatar(account: Account, color: Color, size: Dp, connection: String?) = Box(Modifier.size(size)) {
     Box(Modifier.fillMaxSize().clip(CircleShape).background(Brush.linearGradient(listOf(lerp(color, Text, .25f), color))), contentAlignment = Alignment.Center) {
         Text(account.initial, color = Bg, fontSize = (size.value * .42f).sp, fontWeight = FontWeight.Bold)
+    }
+    Box(Modifier.align(Alignment.TopEnd).offset(x = size * .08f, y = -size * .08f).size(size * .44f).background(Bg, CircleShape).padding(size * .04f)
+        .background(Surface2, CircleShape), contentAlignment = Alignment.Center) {
+        ProviderLogo(account.provider, Modifier.fillMaxSize(.7f))
     }
     if (connection != null) {
         val dot = when (connection) { "connected" -> Teal; "expired" -> Coral; else -> Faint }
@@ -568,8 +595,9 @@ private fun accountColor(s: AppUiState, id: String) = AccountColors[s.accounts.i
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun AccountsSheet(vm: AppViewModel, s: AppUiState, shell: ShellActions, dismiss: () -> Unit) {
+@Composable private fun AccountsSheet(vm: AppViewModel, s: AppUiState, shell: ShellActions, startAdding: Boolean, dismiss: () -> Unit) {
     val haptics = LocalHapticFeedback.current
+    var adding by rememberSaveable { mutableStateOf(startAdding) }
     ModalBottomSheet(onDismissRequest = dismiss, containerColor = Surface, contentColor = Text, scrimColor = Color.Black.copy(alpha = .55f)) {
         Column(Modifier.padding(horizontal = Gutter).padding(bottom = S5)) {
             Text("Accounts", style = MaterialTheme.typography.titleLarge, color = Text)
@@ -583,7 +611,7 @@ private fun accountColor(s: AppUiState, id: String) = AccountColors[s.accounts.i
                     Pressable({
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         if (!active) vm.switchAccount(account.id)
-                        if (account.connected) dismiss() else shell.reconnect()
+                        if (account.connected) dismiss() else shell.reconnect(account.provider)
                     }, Modifier.fillMaxWidth(), role = Role.RadioButton) {
                         Row(Modifier.padding(horizontal = S3, vertical = S2).heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                             Avatar(account, color, 42.dp, usage.connection)
@@ -592,6 +620,7 @@ private fun accountColor(s: AppUiState, id: String) = AccountColors[s.accounts.i
                                 Text(account.name, color = Text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1)
                                 Text(when {
                                     !account.connected -> "Session expired · tap to reconnect"
+                                    !usage.sessionWindow -> "Weekly ${usage.weeklyPct}% used"
                                     usage.sessionPct > 0 && usage.sessionResetMs > s.now -> "${usage.sessionPct}% used · ${formatSpan(usage.sessionResetMs - s.now)} left"
                                     else -> account.email ?: "Full 5-hour window"
                                 }, color = if (account.connected) Muted else Coral, fontSize = 13.sp, maxLines = 1)
@@ -609,13 +638,22 @@ private fun accountColor(s: AppUiState, id: String) = AccountColors[s.accounts.i
                 }
             }
             Spacer(Modifier.height(S2))
-            if (s.canAddAccount) Pressable(shell.addAccount, Modifier.fillMaxWidth().clip(shape).background(Teal.copy(alpha = .08f)).border(1.dp, Teal.copy(alpha = .25f), shape)) {
-                Row(Modifier.padding(horizontal = S3, vertical = S2).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(42.dp).background(Teal.copy(alpha = .16f), CircleShape), contentAlignment = Alignment.Center) { Glyph(GlyphKind.Plus, Teal, Modifier.size(20.dp)) }
-                    Spacer(Modifier.width(S2))
-                    Column(Modifier.weight(1f)) {
-                        Text("Add account", color = Teal, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        Text("${s.accounts.size} of ${CredentialStore.MAX_ACCOUNTS} used · signs in on claude.ai", color = Muted, fontSize = 13.sp)
+            if (s.canAddAccount) Column(Modifier.fillMaxWidth().clip(shape).background(Teal.copy(alpha = .08f)).border(1.dp, Teal.copy(alpha = .25f), shape)) {
+                Pressable({ haptics.performHapticFeedback(HapticFeedbackType.ContextClick); adding = !adding }, Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(horizontal = S3, vertical = S2).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val turn by animateFloatAsState(if (adding) 45f else 0f, ringSpring(), label = "plus")
+                        Box(Modifier.size(42.dp).background(Teal.copy(alpha = .16f), CircleShape), contentAlignment = Alignment.Center) { Glyph(GlyphKind.Plus, Teal, Modifier.size(20.dp).rotate(turn)) }
+                        Spacer(Modifier.width(S2))
+                        Column(Modifier.weight(1f)) {
+                            Text("Add account", color = Teal, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (adding) "Which service?" else "${s.accounts.size} of ${CredentialStore.MAX_ACCOUNTS} used · Claude or ChatGPT", color = Muted, fontSize = 13.sp)
+                        }
+                    }
+                }
+                AnimatedVisibility(adding, enter = fadeIn(smooth()) + expandVertically(smooth()), exit = fadeOut(smooth()) + shrinkVertically(smooth())) {
+                    Column(Modifier.padding(start = S2, end = S2, bottom = S2), verticalArrangement = Arrangement.spacedBy(S1)) {
+                        ProviderOption(Provider.CLAUDE, "Claude", "Pro, Team or Max · signs in on claude.ai") { shell.signIn(Provider.CLAUDE) }
+                        ProviderOption(Provider.CODEX, "ChatGPT · Codex", "Codex limits on a ChatGPT plan · signs in on chatgpt.com") { shell.signIn(Provider.CODEX) }
                     }
                 }
             } else Text("You’re tracking the maximum of ${CredentialStore.MAX_ACCOUNTS} accounts. Sign out of one in Settings to add another.", color = Faint, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(horizontal = 4.dp))
@@ -623,17 +661,46 @@ private fun accountColor(s: AppUiState, id: String) = AccountColors[s.accounts.i
     }
 }
 
+@Composable private fun ProviderOption(provider: Provider, title: String, detail: String, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Pressable(onClick, Modifier.fillMaxWidth().clip(shape).background(Surface.copy(alpha = .9f)).border(1.dp, Hairline, shape)) {
+        Row(Modifier.padding(horizontal = S2, vertical = S2).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(providerTint(provider).copy(alpha = .14f)), contentAlignment = Alignment.Center) {
+                ProviderLogo(provider, Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(S2))
+            Column(Modifier.weight(1f)) {
+                Text(title, color = Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(detail, color = Muted, fontSize = 12.sp, lineHeight = 16.sp)
+            }
+            Glyph(GlyphKind.Back, Faint, Modifier.size(14.dp).rotate(180f))
+        }
+    }
+}
+
+/** Codex's plan, as chatgpt.com reports it, beside the weekly ring. */
+@Composable private fun PlanTile(plan: String, weeklyResetMs: Long, now: Long, modifier: Modifier) = Card(modifier, padding = S2, horizontalAlignment = Alignment.CenterHorizontally) {
+    Spacer(Modifier.height(4.dp))
+    Box(Modifier.size(62.dp).clip(CircleShape).background(Text.copy(alpha = .08f)), contentAlignment = Alignment.Center) { ProviderLogo(Provider.CODEX, Modifier.size(32.dp)) }
+    Spacer(Modifier.height(S2))
+    Text(planLabel(plan), color = Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    Text(if (weeklyResetMs > now) "week resets ${clock(weeklyResetMs, "EEE")}" else "ChatGPT plan", color = Muted, fontSize = 12.sp, maxLines = 1)
+}
+
+private fun planLabel(plan: String) = plan.trim().ifEmpty { "ChatGPT" }.split('_', ' ').joinToString(" ") { it.replaceFirstChar(Char::uppercaseChar) }
+
 @Composable private fun SessionHero(s: AppUiState) {
     val anchor = LocalRingAnchor.current
     val accent = stateColor(s.sessionState)
     val gradient = when (s.sessionState) { "danger" -> listOf(Amber, Coral); "warning" -> listOf(Teal, Amber); else -> listOf(Teal, Blue) }
     val active = s.usage.sessionPct > 0
+    val noWindow = !s.usage.sessionWindow
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.padding(top = S1).size(248.dp).onGloballyPositioned { val o = it.positionInRoot(); anchor?.value = Offset(o.x + it.size.width / 2f, o.y + it.size.height / 2f) }, contentAlignment = Alignment.Center) {
             ActivityRing(s.usage.sessionPct / 100f, gradient, 24.dp, Modifier.fillMaxSize())
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (active) formatRemaining(s.remainingMs) else "5:00:00", color = Text, fontFamily = PlexMono, fontSize = 38.sp, letterSpacing = (-.5).sp)
-                Spacer(Modifier.height(2.dp)); Label(if (active) "TIME REMAINING" else "FULL WINDOW AVAILABLE", color = Muted)
+                Text(if (noWindow) "—:—" else if (active) formatRemaining(s.remainingMs) else "5:00:00", color = Text, fontFamily = PlexMono, fontSize = 38.sp, letterSpacing = (-.5).sp)
+                Spacer(Modifier.height(2.dp)); Label(if (noWindow) "NO 5-HOUR WINDOW REPORTED" else if (active) "TIME REMAINING" else "FULL WINDOW AVAILABLE", color = Muted)
             }
         }
         Spacer(Modifier.height(S4))
@@ -662,7 +729,7 @@ private fun accountColor(s: AppUiState, id: String) = AccountColors[s.accounts.i
 
 @Composable private fun History(vm: AppViewModel, s: AppUiState) = Page("History", trailing = { AccountChip(s) }) {
     Row(horizontalArrangement = Arrangement.spacedBy(S2)) { Stat("Weekly", "${s.usage.weeklyPct}%", Modifier.weight(1f)); val weekCount = s.sessionsThisWeek + if (s.activeWindowStartMs > 0) 1 else 0; Stat("7-day", "$weekCount", Modifier.weight(1f), if (weekCount == 1) "session" else "sessions"); Stat("Active", "${s.weeklyStreakDays}/7", Modifier.weight(1f), "days") }
-    Spacer(Modifier.height(S2)); Stat("Estimated tokens this week", formatTokens(s.estimatedTokens), Modifier.fillMaxWidth())
+    if (s.provider == Provider.CLAUDE) { Spacer(Modifier.height(S2)); Stat("Estimated tokens this week", formatTokens(s.estimatedTokens), Modifier.fillMaxWidth()) }
     Spacer(Modifier.height(S4)); SectionLabel("TODAY")
     val dayStart = remember(s.now / 60_000) { startOfDayMs() }
     val today = remember(s.history, dayStart) { s.history.between(dayStart, Long.MAX_VALUE) }
@@ -822,14 +889,20 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
                     Spacer(Modifier.width(S2))
                     Column(Modifier.weight(1f)) {
                         Text(account.name, color = Text, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-                        Text(account.email ?: "Claude account", color = Muted, fontSize = 13.sp, maxLines = 1)
+                        Text(account.email ?: "${providerName(account.provider)} account", color = Muted, fontSize = 13.sp, maxLines = 1)
                     }
                     Text(if (s.accounts.size > 1) "Switch" else "Manage", color = Teal, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
-        Spacer(Modifier.height(S4)); SectionLabel("PLAN · ${name.uppercase()}"); val selected = plans.first { it.first == s.settings.plan }
-        Card(onClick = { choosePlan = true }) {
+        Spacer(Modifier.height(S4)); SectionLabel("PLAN · ${name.uppercase()}"); val selected = plans.firstOrNull { it.first == s.settings.plan } ?: plans.first()
+        // Codex reports its plan itself, so there is nothing to choose.
+        if (s.provider == Provider.CODEX) Card {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { Text(if (s.usage.planType.isBlank()) "ChatGPT" else "ChatGPT ${planLabel(s.usage.planType)}", color = Text, fontSize = 17.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.height(2.dp)); Text("Reported by chatgpt.com · Codex limits", color = Muted, fontSize = 13.sp) }
+                ProviderLogo(Provider.CODEX, Modifier.size(22.dp))
+            }
+        } else Card(onClick = { choosePlan = true }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text(selected.second, color = Text, fontSize = 17.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.height(2.dp)); Text(selected.third, color = Muted, fontSize = 13.sp) }
                 Text("Change", color = Teal, fontWeight = FontWeight.SemiBold)
@@ -854,7 +927,7 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
         Spacer(Modifier.height(S4)); SectionLabel("ACCOUNT & DATA")
         Column(verticalArrangement = Arrangement.spacedBy(S2)) {
             if (s.canAddAccount) CapsuleButton("Add another account", shell.addAccount, style = CapsuleStyle.Secondary)
-            CapsuleButton("Reconnect $name", shell.reconnect, style = CapsuleStyle.Secondary)
+            CapsuleButton("Reconnect $name", { shell.reconnect(s.provider) }, style = CapsuleStyle.Secondary)
             CapsuleButton("Clear $name’s history", vm::clearHistory, style = CapsuleStyle.Secondary)
             CapsuleButton("Re-run onboarding", { vm.route("onboarding") }, style = CapsuleStyle.Secondary)
             Spacer(Modifier.height(S1))

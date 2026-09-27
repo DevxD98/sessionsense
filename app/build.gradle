@@ -66,5 +66,7 @@ dependencies {
     implementation "dev.chrisbanes.haze:haze-materials:1.5.4"
     implementation "com.squareup.okhttp3:okhttp:4.12.0"
     testImplementation "junit:junit:4.13.2"
+    // android.jar ships org.json as stubs, so local unit tests need the real implementation.
+    testImplementation "org.json:json:20240303"
 }
 kapt { correctErrorTypes true }

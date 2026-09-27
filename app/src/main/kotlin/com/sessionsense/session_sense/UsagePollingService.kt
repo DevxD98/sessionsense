@@ -4,6 +4,7 @@ import android.app.*
 import android.content.*
 import android.graphics.Color
 import android.os.*
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.Preferences
@@ -40,19 +41,45 @@ class UsagePollingService : Service() {
     }
 
     private val lastPolled = mutableMapOf<String, Long>()
+    private var lastActiveId: String? = null
 
     /** Every connected account keeps its own history; background accounts are polled less often. */
     private suspend fun pollAll() {
-        val accounts = app.credentials.accounts.value.filter { it.connected }
+        val all = app.credentials.accounts.value
+        val accounts = all.filter { it.connected }
         if (accounts.isEmpty()) return stopSelf()
         val activeId = app.repository.activeId()
+        // A newly viewed account is polled straight away, whatever its cadence.
+        val switched = activeId != lastActiveId; lastActiveId = activeId
         val now = System.currentTimeMillis()
         accounts.forEach { account ->
             val active = account.id == activeId
-            if (active || now - (lastPolled[account.id] ?: 0) >= BACKGROUND_POLL_MS) {
+            if ((active && switched) || now - (lastPolled[account.id] ?: 0) >= interval(account, active)) {
                 lastPolled[account.id] = now
-                poll(account, active, accounts.size > 1)
+                val label = label(account, all)
+                when (account.provider) {
+                    Provider.CLAUDE -> poll(account, active, label)
+                    Provider.CODEX -> pollCodex(account, active, label)
+                }
             }
+        }
+    }
+
+    // wham/usage is unofficial and shared with the Codex CLI and IDE, so it is polled far less often than claude.ai.
+    private fun interval(account: Account, active: Boolean) = when (account.provider) {
+        Provider.CLAUDE -> if (active) 0L else BACKGROUND_POLL_MS
+        Provider.CODEX -> if (active) CODEX_ACTIVE_POLL_MS else CODEX_BACKGROUND_POLL_MS
+    }
+
+    /** How alerts and the live notification name an account: by provider once both are tracked, by name when a provider has several. */
+    private fun label(account: Account, all: List<Account>): String? {
+        val mixed = all.map { it.provider }.distinct().size > 1
+        val siblings = all.count { it.provider == account.provider } > 1
+        return when {
+            mixed && siblings -> "${account.provider.label} · ${account.name}"
+            mixed -> account.provider.label
+            siblings -> account.name
+            else -> null
         }
     }
 
@@ -76,33 +103,107 @@ class UsagePollingService : Service() {
     private fun authed(account: Account, url: String) = Request.Builder().url(url)
         .header("Cookie", "sessionKey=${account.sessionKey}")
         .header("Accept", "application/json")
-        .header("User-Agent", USER_AGENT)
+        .header("User-Agent", WEB_USER_AGENT)
         .header("Referer", "https://claude.ai")
         .header("Origin", "https://claude.ai")
         .build()
 
-    private suspend fun poll(account: Account, active: Boolean, multiple: Boolean) {
+    private suspend fun poll(account: Account, active: Boolean, label: String?) {
         val k = AccountKeys(account.id)
         backfillProfile(account)
         val request = authed(account, "https://claude.ai/api/organizations/${account.orgId}/usage")
         try {
             client.newCall(request).execute().use { response ->
                 when (response.code) {
-                    200 -> response.body?.string()?.let { persist(account, UsageParser.parse(it, System.currentTimeMillis()), active, multiple) }
-                    401, 403 -> {
-                        app.credentials.markExpired(account.id)
-                        applicationContext.dataStore.edit { it[k.CONNECTION] = "expired" }
-                        if (active) refreshActiveSurfaces(account, multiple)
-                    }
-                    else -> applicationContext.dataStore.edit { it[k.CONNECTION] = "offline" }
+                    200 -> response.body?.string()?.let { persist(account, UsageParser.parse(it, System.currentTimeMillis()), active, label) }
+                    401, 403 -> expire(account, active, label)
+                    else -> offline(k)
                 }
             }
         } catch (_: Exception) {
-            applicationContext.dataStore.edit { it[k.CONNECTION] = "offline" }
+            offline(k)
         }
     }
 
-    private suspend fun persist(account: Account, value: UsageSnapshot, active: Boolean, multiple: Boolean) {
+    private suspend fun expire(account: Account, active: Boolean, label: String?) {
+        app.credentials.markExpired(account.id)
+        applicationContext.dataStore.edit { it[AccountKeys(account.id).CONNECTION] = "expired" }
+        if (active) refreshActiveSurfaces(account, label)
+    }
+
+    private suspend fun offline(k: AccountKeys) = applicationContext.dataStore.edit { it[k.CONNECTION] = "offline" }
+
+    // ─── Codex (chatgpt.com) ───────────────────────────────────────────────────────────────────────────
+
+    private val lastRefreshAttempt = mutableMapOf<String, Long>()
+
+    private sealed interface Refresh {
+        data class Ok(val account: Account) : Refresh
+        /** chatgpt.com answered with a signed-out session: the stored cookies are dead. */
+        data object SignedOut : Refresh
+        /** Network error or a Cloudflare challenge page; the current token may still work. */
+        data object Unavailable : Refresh
+    }
+
+    private suspend fun pollCodex(account: Account, active: Boolean, label: String?) {
+        val k = AccountKeys(account.id)
+        var current = account
+        var refreshed = false
+        suspend fun refresh(): Boolean = when (val r = refreshCodexToken(current)) {
+            is Refresh.Ok -> { current = r.account; refreshed = true; true }
+            Refresh.SignedOut -> { expire(account, active, label); false }
+            Refresh.Unavailable -> true
+        }
+        try {
+            val now = System.currentTimeMillis()
+            val expiring = current.accessToken.isEmpty() || (current.tokenExpMs > 0 && current.tokenExpMs - now < CODEX_REFRESH_MARGIN_MS)
+            if (expiring && now - (lastRefreshAttempt[account.id] ?: 0) >= CODEX_REFRESH_RETRY_MS && !refresh()) return
+            var (code, body, json) = whamUsage(current)
+            // An access token can be revoked before its exp; mint a new one once and retry.
+            if (code == 401 && !refreshed) { if (!refresh()) return; if (refreshed) whamUsage(current).let { code = it.first; body = it.second; json = it.third } }
+            when {
+                code == 200 -> CodexUsageParser.parse(body, System.currentTimeMillis())?.let { persist(account, it, active, label) } ?: offline(k)
+                // A Cloudflare challenge is also a 403, but an HTML one; only an API rejection means the login is gone.
+                code == 401 || (code == 403 && json) -> expire(account, active, label)
+                else -> offline(k)
+            }
+        } catch (_: Exception) {
+            offline(k)
+        }
+    }
+
+    private fun whamUsage(account: Account): Triple<Int, String, Boolean> = client.newCall(Request.Builder().url(CODEX_USAGE_URL)
+        .header("Authorization", "Bearer ${account.accessToken}")
+        .header("ChatGPT-Account-Id", account.orgId)
+        .header("Accept", "application/json")
+        .header("User-Agent", WEB_USER_AGENT)
+        .header("Referer", "https://chatgpt.com/")
+        .build()).execute().use { Triple(it.code, it.body?.string().orEmpty(), it.header("Content-Type").orEmpty().contains("json")) }
+
+    /** Mints a new access token from the stored chatgpt.com cookies, as the website does, and keeps any rotated cookies. */
+    private fun refreshCodexToken(account: Account): Refresh {
+        lastRefreshAttempt[account.id] = System.currentTimeMillis()
+        val request = Request.Builder().url("https://chatgpt.com/api/auth/session")
+            .header("Cookie", account.sessionKey)
+            .header("Accept", "application/json")
+            .header("User-Agent", WEB_USER_AGENT)
+            .header("Referer", "https://chatgpt.com/")
+            .build()
+        return try {
+            client.newCall(request).execute().use { r ->
+                val json = r.header("Content-Type").orEmpty().contains("json")
+                if (r.code != 200 || !json) { Log.w(TAG, "Codex token refresh: HTTP ${r.code}${if (json) "" else ", not JSON (likely a Cloudflare challenge)"}"); return Refresh.Unavailable }
+                val session = CodexAuthParser.session(r.body?.string().orEmpty()) ?: return Refresh.SignedOut
+                val cookies = CodexAuthParser.mergeCookies(account.sessionKey, r.headers("Set-Cookie"))
+                app.credentials.updateToken(account.id, cookies, session.accessToken, session.tokenExpMs)
+                Refresh.Ok(account.copy(sessionKey = cookies, accessToken = session.accessToken, tokenExpMs = session.tokenExpMs))
+            }
+        } catch (_: Exception) {
+            Refresh.Unavailable
+        }
+    }
+
+    private suspend fun persist(account: Account, value: UsageSnapshot, active: Boolean, label: String?) {
         val k = AccountKeys(account.id)
         val old = app.repository.preferences()
         val transition = SessionTransition.apply(
@@ -126,6 +227,7 @@ class UsagePollingService : Service() {
             p[k.OPUS] = value.opusPct; p[k.SONNET] = value.sonnetPct
             p[k.SESSION_RESET] = value.sessionResetMs; p[k.WEEKLY_RESET] = value.weeklyResetMs
             p[k.UPDATED] = value.lastUpdatedMs; p[k.CONNECTION] = "connected"
+            p[k.PLAN_TYPE] = value.planType; p[k.SESSION_WINDOW] = value.sessionWindow
             p[k.PREV_SESSION] = transition.state.previousPct
             p[k.ACTIVE_START] = transition.state.activeStartMs
             p[k.ACTIVE_PEAK] = transition.state.peakPct
@@ -134,12 +236,12 @@ class UsagePollingService : Service() {
         }
         // Alerts, the live notification and widgets belong to the account the user is viewing only.
         if (!active) return
-        notifications.onUsage(old, value, transition, k, if (multiple) account.name else null)
-        refreshActiveSurfaces(account, multiple)
+        notifications.onUsage(old, value, transition, k, label, account.provider)
+        refreshActiveSurfaces(account, label)
     }
 
-    private suspend fun refreshActiveSurfaces(account: Account, multiple: Boolean) {
-        startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(app.repository.snapshot(), if (multiple) account.name else null))
+    private suspend fun refreshActiveSurfaces(account: Account, label: String?) {
+        startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(app.repository.snapshot(), label))
         SessionSenseWidgets.updateAll(this)
     }
 
@@ -147,8 +249,14 @@ class UsagePollingService : Service() {
     override fun onBind(intent: Intent?) = null
 
     companion object {
+        private const val TAG = "SessionSense"
         private const val BACKGROUND_POLL_MS = 60_000L
-        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36"
+        private const val CODEX_ACTIVE_POLL_MS = 60_000L
+        private const val CODEX_BACKGROUND_POLL_MS = 5 * 60_000L
+        private const val CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+        // Refresh a day before the access token's exp; if chatgpt.com refuses (e.g. a Cloudflare challenge), retry every 30 min.
+        private const val CODEX_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000L
+        private const val CODEX_REFRESH_RETRY_MS = 30 * 60_000L
         // Android 12+ refuses foreground-service starts while the app is in the background (e.g. the process was spun up
         // for a widget update or by WorkManager). That throws and would kill the process, so treat it as "try again later":
         // MainActivity starts the service whenever the app is opened.
@@ -184,6 +292,7 @@ class NotificationCenter(private val context: Context) {
         val remaining = (s.sessionResetMs - System.currentTimeMillis()).coerceAtLeast(0)
         val text = when {
             s.connection == "expired" -> "Session expired — open to reconnect"
+            !s.sessionWindow -> "Weekly ${s.weeklyPct}% used"
             s.sessionPct > 0 -> "${s.sessionPct}% used · ${formatDuration(remaining)} left"
             else -> "Full 5-hour window available"
         }
@@ -195,7 +304,8 @@ class NotificationCenter(private val context: Context) {
         return builder.build()
     }
 
-    suspend fun onUsage(old: Preferences, s: UsageSnapshot, transition: TrackingResult, k: AccountKeys, account: String?) {
+    /** [account] prefixes alert titles (see UsagePollingService.label); [provider] names the window in alert bodies. */
+    suspend fun onUsage(old: Preferences, s: UsageSnapshot, transition: TrackingResult, k: AccountKeys, account: String?, provider: Provider = Provider.CLAUDE) {
         val settings = app.repository.settings.first()
         val flags = (old[k.ALERT_FLAGS] ?: emptySet()).toMutableSet()
         fun once(key: String, critical: Boolean = false, block: () -> Unit) {
@@ -208,13 +318,13 @@ class NotificationCenter(private val context: Context) {
         }
         // On a rollover a new window is already running, so "full session available" would be wrong.
         if (transition.ended != null && !transition.started && settings.sessionAlerts) once(resetAlertKey(s.sessionResetMs)) {
-            alert(102, "Full session available", "Your 5-hour Claude window has reset.")
+            alert(102, "Full session available", "Your 5-hour ${provider.label} window has reset.")
         }
         val remaining = s.sessionResetMs - System.currentTimeMillis()
         if (s.sessionPct > 0 && settings.sessionAlerts) {
             listOf(60 to 103, 30 to 104, 10 to 105).forEach { (minutes, id) ->
                 if (remaining in 1..minutes * 60_000L) once("$minutes:${s.sessionResetMs}", minutes == 10) {
-                    alert(id, "$minutes min left", "${s.sessionPct}% of this Claude session is used.")
+                    alert(id, "$minutes min left", "${s.sessionPct}% of this ${provider.label} session is used.")
                 }
             }
             val elapsed = 5 * 60 * 60 * 1000L - remaining
