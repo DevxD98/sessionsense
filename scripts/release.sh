@@ -87,6 +87,8 @@ echo "==> Building SessionSense $new (versionCode $(code "$new"))"
 apk_src="app/build/outputs/apk/sideload/release/app-sideload-release.apk"
 [[ -f "$apk_src" ]] || die "build produced no APK at $apk_src"
 apk="$out/sessionsense-$new.apk"; cp "$apk_src" "$apk"
+# Same file under a fixed name, so releases/latest/download/sessionsense.apk is a stable download link (README).
+cp "$apk" "$out/sessionsense.apk"
 sha=$(shasum -a 256 "$apk" | cut -d' ' -f1)
 size=$(wc -c <"$apk" | tr -d ' ')
 apk_url="https://github.com/$REPO/releases/download/v$new/sessionsense-$new.apk"
@@ -132,7 +134,7 @@ if $dry_run; then echo "Dry run: nothing published. update.json is in $out/"; ex
 read -r -p "Publish v$new to $REPO? Type the version ($new) to confirm: " answer
 [[ "$answer" == "$new" ]] || { echo "Not published."; exit 1; }
 
-gh release create "v$new" "$apk" "$out/update.json" --repo "$REPO" --title "SessionSense $new" --notes-file "$out/notes.md" --latest
+gh release create "v$new" "$apk" "$out/sessionsense.apk" "$out/update.json" --repo "$REPO" --title "SessionSense $new" --notes-file "$out/notes.md" --latest
 published=true
 
 sed -i '' "s/^lastReleasedVersionName=.*/lastReleasedVersionName=$new/" version.properties 2>/dev/null || sed -i "s/^lastReleasedVersionName=.*/lastReleasedVersionName=$new/" version.properties
