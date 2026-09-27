@@ -60,6 +60,9 @@ else
   min_code=$(curl -fsSL --max-time 15 "$LATEST_MANIFEST" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("minSupportedVersionCode", 0)))' 2>/dev/null || echo 0)
 fi
 
+# Clean before anything is written under build/ (release output lives there): lint can crash on kapt stubs left
+# over from an earlier build of the other flavor.
+./gradlew --quiet clean
 out="build/release/v$new"; rm -rf "$out"; mkdir -p "$out"
 if [[ -n "$notes_file" ]]; then cp "$notes_file" "$out/notes.md"
 elif [[ -n "$notes" ]]; then printf '%s\n' "$notes" > "$out/notes.md"
@@ -71,15 +74,14 @@ fi
 sed -i '' '/^# Write the release notes/d' "$out/notes.md" 2>/dev/null || sed -i '/^# Write the release notes/d' "$out/notes.md"
 
 # Bump, and put the old version back on any exit that isn't a completed publish (failure, dry run, no confirmation).
-cp version.properties "$out/version.properties.bak"
+# The backup lives outside build/, so nothing a build does can take it away.
+backup=$(mktemp -t sessionsense-version); cp version.properties "$backup"
 published=false
-restore() { $published || { cp "$out/version.properties.bak" version.properties; echo "version.properties restored to $current" >&2; }; }
+restore() { $published || { cp "$backup" version.properties; echo "version.properties restored to $current" >&2; }; }
 trap restore EXIT
 sed -i '' "s/^versionName=.*/versionName=$new/" version.properties 2>/dev/null || sed -i "s/^versionName=.*/versionName=$new/" version.properties
 echo "==> Building SessionSense $new (versionCode $(code "$new"))"
 
-# Clean first: lint can crash on kapt stubs left over from an earlier build of the other flavor.
-./gradlew --quiet clean
 ./gradlew --quiet testDebugUnitTest lintDebug assembleSideloadRelease
 
 apk_src="app/build/outputs/apk/sideload/release/app-sideload-release.apk"
