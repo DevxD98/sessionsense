@@ -78,6 +78,8 @@ trap restore EXIT
 sed -i '' "s/^versionName=.*/versionName=$new/" version.properties 2>/dev/null || sed -i "s/^versionName=.*/versionName=$new/" version.properties
 echo "==> Building SessionSense $new (versionCode $(code "$new"))"
 
+# Clean first: lint can crash on kapt stubs left over from an earlier build of the other flavor.
+./gradlew --quiet clean
 ./gradlew --quiet testDebugUnitTest lintDebug assembleSideloadRelease
 
 apk_src="app/build/outputs/apk/sideload/release/app-sideload-release.apk"
