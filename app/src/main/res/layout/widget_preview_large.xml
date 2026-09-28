@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget picker preview for the Today widget (sample values). Mirrors LargeWidgetImpl in SessionSenseWidgets.kt. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_preview_bg"
+    android:orientation="vertical"
+    android:padding="16dp">
+    <include layout="@layout/widget_preview_rings_legend" />
+    <FrameLayout
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <TextView
+            style="@style/WidgetPreview.Label"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:text="TODAY"
+            android:textColor="#8E8E96"
+            android:textSize="11sp" />
+        <TextView style="@style/WidgetPreview.Detail" android:text="peak 42%" />
+    </LinearLayout>
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="6dp"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_preview_curve" />
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+        <LinearLayout style="@style/WidgetPreview.Footer">
+            <TextView style="@style/WidgetPreview.FooterValue" android:text="5:40 PM" />
+            <TextView style="@style/WidgetPreview.FooterLabel" android:text="RESETS" />
+        </LinearLayout>
+        <LinearLayout style="@style/WidgetPreview.Footer">
+            <TextView style="@style/WidgetPreview.FooterValue" android:text="Thu 9 AM" />
+            <TextView style="@style/WidgetPreview.FooterLabel" android:text="WEEKLY RESET" />
+        </LinearLayout>
+        <LinearLayout style="@style/WidgetPreview.Footer">
+            <TextView style="@style/WidgetPreview.FooterValue" android:text="Max 5x" />
+            <TextView style="@style/WidgetPreview.FooterLabel" android:text="PLAN" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

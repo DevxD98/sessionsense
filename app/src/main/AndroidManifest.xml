@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application android:name=".SessionSenseApp" android:allowBackup="true" android:enableOnBackInvokedCallback="true" android:icon="@mipmap/launcher_icon" android:label="SessionSense" android:supportsRtl="true" android:theme="@style/Theme.SessionSense">
@@ -10,7 +10,10 @@
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
-        <service android:name=".UsagePollingService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <!-- specialUse, not dataSync: Android 15+ caps dataSync services at 6 hours a day and kills the app when the cap is hit. -->
+        <service android:name=".UsagePollingService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Live AI plan usage: an ongoing notification that counts down the current 5-hour usage window and alerts before limits are hit." />
+        </service>
         <receiver android:name=".RestartReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>

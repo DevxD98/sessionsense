@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget picker preview: today's usage curve. Generated sample values; the live widget draws it in SessionSenseWidgets.todayCurve(). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="300dp" android:height="64dp" android:viewportWidth="300" android:viewportHeight="64">
+    <path android:pathData="M0,31.5 H300 M0,63 H300" android:strokeWidth="1" android:strokeColor="#12FFFFFF" />
+    <path android:pathData="M192.88,0 V64" android:strokeWidth="1" android:strokeColor="#1AFFFFFF" />
+    <path android:pathData="M107.12,61 L115.7,61 L115.7,57.52 L123.05,57.52 L123.05,52.88 L132.85,52.88 L132.85,48.24 L143.88,48.24 L143.88,43.02 L154.9,43.02 L154.9,40.7 L169.6,40.7 L169.6,40.7 L176.95,40.7 L176.95,38.96 L186.75,38.96 L186.75,36.64 L192.88,36.64 L192.88,64 L107.12,64 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="0" android:endY="64">
+                <item android:offset="0" android:color="#596EE7D0" />
+                <item android:offset="1" android:color="#006EE7D0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M107.12,61 L115.7,61 L115.7,57.52 L123.05,57.52 L123.05,52.88 L132.85,52.88 L132.85,48.24 L143.88,48.24 L143.88,43.02 L154.9,43.02 L154.9,40.7 L169.6,40.7 L169.6,40.7 L176.95,40.7 L176.95,38.96 L186.75,38.96 L186.75,36.64 L192.88,36.64" android:strokeWidth="2.2" android:strokeLineCap="round" android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="300" android:endY="0">
+                <item android:offset="0" android:color="#FF6EE7D0" />
+                <item android:offset="1" android:color="#FF8BB4FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M189.88,36.64 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0" android:fillColor="#FF8BB4FF" />
+</vector>

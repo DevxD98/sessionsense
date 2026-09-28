@@ -35,16 +35,7 @@ data class AppUiState(
     val dailyPeaks: List<Int> get() = history.dailyPeaks
     /** The in-progress window, reconstructed from live usage (it is only written to Room once it ends). */
     val activeWindowStartMs get() = if (usage.sessionPct > 0 && usage.sessionResetMs > 0) usage.sessionResetMs - 5 * 60 * 60 * 1000L else 0L
-    val insight: String get() {
-        if (usage.sessionPct in 1..14 && remainingMs in 1 until 150 * 60_000L) return "Plenty of room — only ${usage.sessionPct}% used this window."
-        val nonZero = dailyPeaks.filter { it > 0 }
-        if (usage.weeklyPct > 0 && nonZero.isNotEmpty()) {
-            val rate = nonZero.average().coerceAtLeast(1.0)
-            val days = ((100 - usage.weeklyPct) / rate).coerceAtLeast(0.0)
-            return if (days <= 7) "At this pace, weekly capacity may run out in ${days.toInt().coerceAtLeast(1)} day${if (days >= 2) "s" else ""}." else "Your weekly pace is sustainable."
-        }
-        return if (usage.sessionPct == 0) "Full session available — good to go." else "Session is running smoothly."
-    }
+    val insight get() = paceInsight(usage, now)
 }
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {

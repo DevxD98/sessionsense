@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget picker preview background: the widget's dark card with its soft teal glow from the top-left (see backdrop()). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#111114" />
+            <corners android:radius="26dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:type="radial" android:centerX="0.22" android:centerY="0.2" android:gradientRadius="110%p"
+                android:startColor="#296EE7D0" android:centerColor="#0D6EE7D0" android:endColor="#006EE7D0" />
+            <corners android:radius="26dp" />
+        </shape>
+    </item>
+</layer-list>

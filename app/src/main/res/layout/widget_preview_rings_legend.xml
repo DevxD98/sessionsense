@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rings and legend for the Activity rings and Today previews (sample values). Mirrors RingsWithLegend in SessionSenseWidgets.kt. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+    <ImageView
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:src="@drawable/widget_preview_rings" />
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+        <TextView style="@style/WidgetPreview.Label" android:text="SESSION" />
+        <LinearLayout style="@style/WidgetPreview.ValueRow">
+            <TextView style="@style/WidgetPreview.Value" android:text="42%" android:textColor="#6EE7D0" />
+            <TextView style="@style/WidgetPreview.Detail" android:text="  2h 18m left" />
+        </LinearLayout>
+        <TextView style="@style/WidgetPreview.Label" android:layout_marginTop="6dp" android:text="WEEKLY" />
+        <LinearLayout style="@style/WidgetPreview.ValueRow">
+            <TextView style="@style/WidgetPreview.Value" android:text="63%" android:textColor="#8BB4FF" />
+            <TextView style="@style/WidgetPreview.Detail" android:text="  resets Thu" />
+        </LinearLayout>
+        <TextView style="@style/WidgetPreview.Label" android:layout_marginTop="6dp" android:text="OPUS" />
+        <TextView style="@style/WidgetPreview.Value" android:text="18%" android:textColor="#F4C77A" />
+    </LinearLayout>
+</LinearLayout>

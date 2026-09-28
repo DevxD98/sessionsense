@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget picker preview: the Session ring widget's ring. Generated sample values; the live widget draws its rings in SessionSenseWidgets.rings(). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="100dp" android:height="100dp" android:viewportWidth="100" android:viewportHeight="100">
+    <path android:pathData="M9.75,50 a40.25,40.25 0 1,1 80.5,0 a40.25,40.25 0 1,1 -80.5,0" android:strokeWidth="13" android:strokeColor="#336EE7D0" />
+    <group android:rotation="-90" android:pivotX="50" android:pivotY="50">
+        <path android:pathData="M90.25,50 A40.25,40.25 0 0,1 14.73,69.39" android:strokeWidth="13" android:strokeLineCap="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient android:type="sweep" android:centerX="50" android:centerY="50">
+                    <item android:offset="0" android:color="#FF6EE7D0" />
+                    <item android:offset="0.46" android:color="#FF8FC5E5" />
+                    <item android:offset="1" android:color="#FF8FC5E5" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M8.23,69.39 a6.5,6.5 0 1,1 13,0 a6.5,6.5 0 1,1 -13,0" android:fillColor="#FF8FC5E5" />
+    </group>
+</vector>

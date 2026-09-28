@@ -560,9 +560,9 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).background(Teal.copy(alpha = .14f), CircleShape), contentAlignment = Alignment.Center) { Text("↗", color = Teal, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
             Spacer(Modifier.width(S2))
-            Column(Modifier.weight(1f)) { Label("PACE INSIGHT", color = Teal); Spacer(Modifier.height(4.dp)); Text(s.insight, color = Text, fontSize = 16.sp, fontWeight = FontWeight.Medium, lineHeight = 22.sp) }
+            Column(Modifier.weight(1f)) { Label("PACE INSIGHT", color = Teal); Spacer(Modifier.height(4.dp)); Text(s.insight.text, color = Text, fontSize = 16.sp, fontWeight = FontWeight.Medium, lineHeight = 22.sp) }
         }
-        Spacer(Modifier.height(S2)); Text("Based on recent daily session peaks", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(S2)); Text(s.insight.basis, color = Muted, fontSize = 13.sp)
     }
     Spacer(Modifier.height(S4)); SectionLabel("TODAY")
     val live = s.activeWindowStartMs > 0
