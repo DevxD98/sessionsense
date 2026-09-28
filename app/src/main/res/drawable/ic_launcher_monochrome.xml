@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Three activity rings (session, weekly, model); outer ring spans ~76% of the visible 72dp icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M 54.0,30.0 a 24.0,24.0 0 1,1 0,48.0 a 24.0,24.0 0 1,1 0,-48.0" android:strokeColor="#55FFFFFF" android:strokeWidth="6.8" android:fillColor="#00000000"/>
+    <path android:pathData="M 54.0,30.0 A 24.0,24.0 0 1,1 30.047,52.493" android:strokeColor="#FFFFFFFF" android:strokeWidth="6.8" android:strokeLineCap="round" android:fillColor="#00000000"/>
+    <path android:pathData="M 54.0,38.0 a 16.0,16.0 0 1,1 0,32.0 a 16.0,16.0 0 1,1 0,-32.0" android:strokeColor="#55FFFFFF" android:strokeWidth="6.8" android:fillColor="#00000000"/>
+    <path android:pathData="M 54.0,38.0 A 16.0,16.0 0 1,1 45.427,67.509" android:strokeColor="#FFFFFFFF" android:strokeWidth="6.8" android:strokeLineCap="round" android:fillColor="#00000000"/>
+    <path android:pathData="M 54.0,46.0 a 8.0,8.0 0 1,1 0,16.0 a 8.0,8.0 0 1,1 0,-16.0" android:strokeColor="#55FFFFFF" android:strokeWidth="6.8" android:fillColor="#00000000"/>
+    <path android:pathData="M 54.0,46.0 A 8.0,8.0 0 1,1 46.251,52.010" android:strokeColor="#FFFFFFFF" android:strokeWidth="6.8" android:strokeLineCap="round" android:fillColor="#00000000"/>
+</vector>

@@ -24,6 +24,7 @@ import androidx.compose.ui.geometry.*
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.*
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
@@ -69,7 +70,9 @@ internal val Gutter = 20.dp
 private val TabBarHeight = 64.dp
 
 private val CardGlass = HazeStyle(backgroundColor = Bg, tint = HazeTint(Surface.copy(alpha = .60f)), blurRadius = 24.dp, noiseFactor = .04f, fallbackTint = HazeTint(Surface.copy(alpha = .92f)))
-private val BarGlass = HazeStyle(backgroundColor = Bg, tint = HazeTint(Surface.copy(alpha = .72f)), blurRadius = 20.dp, noiseFactor = .05f, fallbackTint = HazeTint(Surface.copy(alpha = .96f)))
+// Liquid glass for the tab bar only: a light, see-through tint over a heavy blur, so content reads through it.
+private val BarGlass = HazeStyle(backgroundColor = Bg, tints = listOf(HazeTint(Surface.copy(alpha = .30f)), HazeTint(Color.White.copy(alpha = .05f))),
+    blurRadius = 30.dp, noiseFactor = .03f, fallbackTint = HazeTint(Surface.copy(alpha = .94f)))
 
 private val LocalHazeState = staticCompositionLocalOf<HazeState?> { null }
 private val LocalRingAnchor = staticCompositionLocalOf<MutableState<Offset?>?> { null }
@@ -110,36 +113,15 @@ internal fun <T> smooth(visibilityThreshold: T? = null) = spring(dampingRatio = 
 @Composable fun SessionSenseRoot(vm: AppViewModel, launchAction: String?, onLaunchActionHandled: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     var splash by rememberSaveable { mutableStateOf(true) }
-    Crossfade(splash, animationSpec = spring(stiffness = Spring.StiffnessLow), label = "splash") { showSplash ->
-        if (showSplash) Splash { splash = false }
-        else UpdateHost(vm.updates, launchAction == ACTION_OPEN_UPDATE, onLaunchActionHandled) {
-            if (state.settings.route == "onboarding") Onboarding(vm, state)
-            else MainShell(vm, state, if (launchAction == "com.sessionsense.OPEN_HISTORY") "history" else if (launchAction == "com.sessionsense.RECONNECT") "settings" else "home")
-        }
-    }
-}
-
-@Composable private fun Splash(done: () -> Unit) {
-    val transition = rememberInfiniteTransition(label = "blob")
-    val phase by transition.animateFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(3_200, easing = LinearEasing)), label = "phase")
-    val breathe by transition.animateFloat(.92f, 1.08f, infiniteRepeatable(tween(1_600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "breathe")
-    var showText by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { delay(900); showText = true; delay(1_500); done() }
-    Box(Modifier.fillMaxSize().background(Bg), contentAlignment = Alignment.Center) {
-        Backdrop(Modifier.matchParentSize(), Teal, .8f) { Offset(it.width / 2f, it.height / 2f) }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Canvas(Modifier.size(150.dp)) {
-                val n = 14; val c = center; val base = size.minDimension * .32f * breathe
-                fun blob(scale: Float, offset: Float, color: Color) { val p = Path(); repeat(n + 1) { i -> val a = i * 2 * PI / n; val r = base * scale * (1 + .09f * sin(phase + offset + i * 1.4f)); val pt = Offset(c.x + cos(a).toFloat() * r, c.y + sin(a).toFloat() * r); if (i == 0) p.moveTo(pt.x, pt.y) else p.lineTo(pt.x, pt.y) }; p.close(); drawPath(p, color) }
-                blob(1.32f, 1.7f, Blue.copy(alpha = .09f)); blob(1.12f, .8f, Teal.copy(alpha = .12f)); blob(1f, 0f, Teal.copy(alpha = .18f))
-                val outline = Path(); repeat(n + 1) { i -> val a = i * 2 * PI / n; val r = base * (1 + .09f * sin(phase + i * 1.4f)); val pt = Offset(c.x + cos(a).toFloat() * r, c.y + sin(a).toFloat() * r); if (i == 0) outline.moveTo(pt.x, pt.y) else outline.lineTo(pt.x, pt.y) }; outline.close(); drawPath(outline, Text, style = Stroke(3.dp.toPx()))
-                drawLine(Text, Offset(c.x - 22.dp.toPx(), c.y - 20.dp.toPx()), Offset(c.x + 20.dp.toPx(), c.y - 20.dp.toPx()), 4.dp.toPx(), StrokeCap.Round)
-                drawLine(Text, Offset(c.x + 20.dp.toPx(), c.y - 20.dp.toPx()), Offset(c.x - 20.dp.toPx(), c.y + 20.dp.toPx()), 4.dp.toPx(), StrokeCap.Round)
-                drawLine(Text, Offset(c.x - 20.dp.toPx(), c.y + 20.dp.toPx()), Offset(c.x + 22.dp.toPx(), c.y + 20.dp.toPx()), 4.dp.toPx(), StrokeCap.Round)
+    val hero = remember { mutableStateOf<Rect?>(null) }
+    // The app runs underneath the launch animation from the first frame, so its ring can land on Home's.
+    CompositionLocalProvider(LocalHeroRing provides hero) {
+        Box(Modifier.fillMaxSize().background(Bg)) {
+            UpdateHost(vm.updates, launchAction == ACTION_OPEN_UPDATE, onLaunchActionHandled) {
+                if (state.settings.route == "onboarding") Onboarding(vm, state)
+                else MainShell(vm, state, if (launchAction == "com.sessionsense.OPEN_HISTORY") "history" else if (launchAction == "com.sessionsense.RECONNECT") "settings" else "home")
             }
-            AnimatedVisibility(showText, enter = fadeIn(spring(stiffness = Spring.StiffnessLow)) + slideInVertically(smooth(IntOffset.VisibilityThreshold)) { it / 3 }) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("SessionSense", style = MaterialTheme.typography.headlineLarge, color = Text); Spacer(Modifier.height(4.dp)); Text("tune in to your session", color = Muted, fontFamily = PlexMono, fontSize = 12.sp) }
-            }
+            if (splash) LaunchAnimation(hero.value, state.usage.sessionPct / 100f, heroColors(state.sessionState)) { splash = false }
         }
     }
 }
@@ -184,26 +166,30 @@ enum class CapsuleStyle { Primary, Secondary, Destructive }
     LaunchedEffect(progress) { anim.animateTo(progress.coerceIn(0f, 1f), ringSpring()) }
     val start by animateColorAsState(colors[0], smooth(), label = "ringStart")
     val end by animateColorAsState(colors[1], smooth(), label = "ringEnd")
-    Canvas(modifier) {
-        val w = stroke.toPx(); val r = (size.minDimension - w) / 2f
-        val topLeft = Offset(center.x - r, center.y - r); val arc = Size(r * 2, r * 2)
-        drawCircle(start.copy(alpha = .14f), r, style = Stroke(w))
-        val p = anim.value.coerceIn(0f, 1f)
-        if (p < .002f) return@Canvas
-        // Start the gradient half a cap early so the rounded start cap is the start colour, not the wrapped end colour.
-        val cap = Math.toDegrees((w / 2f / r).toDouble()).toFloat(); val sweep = 360f * p
-        rotate(-90f - cap) {
-            val stop = ((cap + sweep) / 360f).coerceIn(.01f, 1f)
-            drawArc(Brush.sweepGradient(0f to start, stop to end, 1f to end, center = center), cap, sweep, false, topLeft, arc, style = Stroke(w, cap = StrokeCap.Round))
-        }
-        val a = Math.toRadians((sweep - 90f).toDouble())
-        val tip = Offset(center.x + r * cos(a).toFloat(), center.y + r * sin(a).toFloat())
-        // Near a full lap the tip overlaps the start cap; a soft shadow keeps the overlap readable.
-        if (p > .85f) drawCircle(Brush.radialGradient(listOf(Color.Black.copy(alpha = .45f), Color.Transparent), tip, w * .85f), w * .85f, tip)
-        if (glow) drawCircle(Brush.radialGradient(listOf(end.copy(alpha = .6f), Color.Transparent), tip, w * 1.6f), w * 1.6f, tip)
-        drawCircle(end, w / 2f, tip)
-        drawCircle(Color.White.copy(alpha = .5f), w * .15f, tip)
+    Canvas(modifier) { drawActivityRing(center, size.minDimension, stroke.toPx(), anim.value, start, end, glow) }
+}
+
+/** One activity ring of outer [diameter] and stroke [w] around [c]: track, gradient sweep, glowing tip. Shared with the launch animation. */
+internal fun DrawScope.drawActivityRing(c: Offset, diameter: Float, w: Float, progress: Float, start: Color, end: Color, glow: Boolean = true, alpha: Float = 1f) {
+    val r = (diameter - w) / 2f
+    if (r <= 0f || alpha <= 0f) return
+    val topLeft = Offset(c.x - r, c.y - r); val arc = Size(r * 2, r * 2)
+    drawCircle(start.copy(alpha = .14f * alpha), r, c, style = Stroke(w))
+    val p = progress.coerceIn(0f, 1f)
+    if (p < .002f) return
+    // Start the gradient half a cap early so the rounded start cap is the start colour, not the wrapped end colour.
+    val cap = Math.toDegrees((w / 2f / r).toDouble()).toFloat(); val sweep = 360f * p
+    rotate(-90f - cap, c) {
+        val stop = ((cap + sweep) / 360f).coerceIn(.01f, 1f)
+        drawArc(Brush.sweepGradient(0f to start, stop to end, 1f to end, center = c), cap, sweep, false, topLeft, arc, alpha = alpha, style = Stroke(w, cap = StrokeCap.Round))
     }
+    val a = Math.toRadians((sweep - 90f).toDouble())
+    val tip = Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat())
+    // Near a full lap the tip overlaps the start cap; a soft shadow keeps the overlap readable.
+    if (p > .85f) drawCircle(Brush.radialGradient(listOf(Color.Black.copy(alpha = .45f * alpha), Color.Transparent), tip, w * .85f), w * .85f, tip)
+    if (glow) drawCircle(Brush.radialGradient(listOf(end.copy(alpha = .6f * alpha), Color.Transparent), tip, w * 1.6f), w * 1.6f, tip)
+    drawCircle(end.copy(alpha = alpha), w / 2f, tip)
+    drawCircle(Color.White.copy(alpha = .5f * alpha), w * .15f, tip)
 }
 
 /** A single radial wash anchored behind the hero ring (or screen-top when there is no ring), fading to the base colour. */
@@ -213,12 +199,13 @@ enum class CapsuleStyle { Primary, Secondary, Destructive }
     drawRect(Brush.radialGradient(0f to glow.copy(alpha = .22f * intensity), .4f to glow.copy(alpha = .08f * intensity), 1f to Color.Transparent, center = c, radius = size.width * .95f))
 }
 
-@Composable internal fun Card(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, padding: Dp = S3, horizontalAlignment: Alignment.Horizontal = Alignment.Start, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun Card(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, padding: Dp = S3, horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(22.dp); val haze = LocalHazeState.current
     val glass = if (haze != null) Modifier.hazeEffect(haze, CardGlass) else Modifier.background(Surface.copy(alpha = .9f))
     val body = Modifier.fillMaxWidth().clip(shape).then(glass).border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .13f), Color.White.copy(alpha = .04f))), shape).padding(padding)
-    if (onClick == null) Column(modifier.then(body), horizontalAlignment = horizontalAlignment, content = content)
-    else Pressable(onClick, modifier) { Column(body, horizontalAlignment = horizontalAlignment, content = content) }
+    if (onClick == null) Column(modifier.then(body), verticalArrangement, horizontalAlignment, content)
+    else Pressable(onClick, modifier) { Column(body, verticalArrangement, horizontalAlignment, content) }
 }
 
 @Composable internal fun Label(value: String, modifier: Modifier = Modifier, color: Color = Faint) = Text(value, modifier, color = color, fontFamily = Outfit, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
@@ -497,12 +484,18 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
 
 @Composable private fun FloatingTabBar(selected: Int, haze: HazeState, modifier: Modifier, onSelect: (Int) -> Unit) {
     val haptics = LocalHapticFeedback.current
-    BoxWithConstraints(modifier.padding(horizontal = 44.dp).fillMaxWidth().height(TabBarHeight).clip(CircleShape).hazeEffect(haze, BarGlass)
-        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .16f), Color.White.copy(alpha = .05f))), CircleShape).padding(6.dp)) {
+    BoxWithConstraints(modifier.padding(horizontal = 44.dp).fillMaxWidth().height(TabBarHeight)
+        .shadow(24.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
+        .clip(CircleShape).hazeEffect(haze, BarGlass)
+        // Specular sheen on the upper half and a bright rim that fades down the sides, like light catching glass.
+        .drawWithContent { drawContent(); drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = .10f), .55f to Color.Transparent)) }
+        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .34f), Color.White.copy(alpha = .08f), Color.White.copy(alpha = .14f))), CircleShape).padding(6.dp)) {
         val slot = maxWidth / Tabs.size
         val x by animateDpAsState(slot * selected, spring(dampingRatio = .72f, stiffness = Spring.StiffnessMediumLow), label = "indicator")
-        // Explicit teal indicator: never derived from the Material scheme.
-        Box(Modifier.offset { IntOffset(x.roundToPx(), 0) }.width(slot).fillMaxHeight().clip(CircleShape).background(Teal.copy(alpha = .16f)).border(1.dp, Teal.copy(alpha = .30f), CircleShape))
+        // A frosted pill under the selected tab (the icon and label carry the teal).
+        Box(Modifier.offset { IntOffset(x.roundToPx(), 0) }.width(slot).fillMaxHeight().clip(CircleShape)
+            .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = .17f), Color.White.copy(alpha = .07f))))
+            .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .28f), Color.White.copy(alpha = .06f))), CircleShape))
         Row(Modifier.fillMaxSize()) {
             Tabs.forEachIndexed { i, tab ->
                 val active = i == selected
@@ -532,7 +525,7 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
     val models = if (s.provider == Provider.CLAUDE) listOfNotNull(Triple("Opus", s.usage.opusPct, Amber).takeIf { s.usage.opusReported },
         Triple("Sonnet", s.usage.sonnetPct, Teal).takeIf { s.usage.sonnetReported }) else emptyList()
     if (models.isEmpty()) Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(S2)) {
-        Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f).fillMaxHeight())
+        Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f).fillMaxHeight(), large = true)
         val plan = if (s.provider == Provider.CODEX) planLabel(s.usage.planType) else "Claude ${claudePlanName(s.settings.plan)}"
         PlanTile(s.provider, plan, s.usage.weeklyResetMs, s.now, Modifier.weight(1f).fillMaxHeight())
     }
@@ -688,9 +681,10 @@ private fun providerName(p: Provider) = if (p == Provider.CODEX) "ChatGPT · Cod
 }
 
 /** The plan an account runs on (reported by chatgpt.com for Codex, picked in Settings for Claude), beside the weekly ring. */
-@Composable private fun PlanTile(provider: Provider, plan: String, weeklyResetMs: Long, now: Long, modifier: Modifier) = Card(modifier, padding = S2, horizontalAlignment = Alignment.CenterHorizontally) {
+@Composable private fun PlanTile(provider: Provider, plan: String, weeklyResetMs: Long, now: Long, modifier: Modifier) =
+    Card(modifier, padding = S2, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
     Spacer(Modifier.height(4.dp))
-    Box(Modifier.size(62.dp).clip(CircleShape).background(providerTint(provider).copy(alpha = .10f)), contentAlignment = Alignment.Center) { ProviderLogo(provider, Modifier.size(32.dp)) }
+    Box(Modifier.size(56.dp).clip(RoundedCornerShape(18.dp)).background(providerTint(provider).copy(alpha = .10f)), contentAlignment = Alignment.Center) { ProviderLogo(provider, Modifier.size(28.dp)) }
     Spacer(Modifier.height(S2))
     Text(plan, color = Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     Text(if (weeklyResetMs > now) "week resets ${clock(weeklyResetMs, "EEE")}" else "${providerName(provider)} plan", color = Muted, fontSize = 12.sp, maxLines = 1)
@@ -701,11 +695,12 @@ private fun planLabel(plan: String) = plan.trim().ifEmpty { "ChatGPT" }.split('_
 @Composable private fun SessionHero(s: AppUiState) {
     val anchor = LocalRingAnchor.current
     val accent = stateColor(s.sessionState)
-    val gradient = when (s.sessionState) { "danger" -> listOf(Amber, Coral); "warning" -> listOf(Teal, Amber); else -> listOf(Teal, Blue) }
+    val gradient = heroColors(s.sessionState)
+    val heroRing = LocalHeroRing.current
     val active = s.usage.sessionPct > 0
     val noWindow = !s.usage.sessionWindow
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.padding(top = S1).size(248.dp).onGloballyPositioned { val o = it.positionInRoot(); anchor?.value = Offset(o.x + it.size.width / 2f, o.y + it.size.height / 2f) }, contentAlignment = Alignment.Center) {
+        Box(Modifier.padding(top = S1).size(248.dp).onGloballyPositioned { val o = it.positionInRoot(); anchor?.value = Offset(o.x + it.size.width / 2f, o.y + it.size.height / 2f); heroRing?.value = it.boundsInRoot() }, contentAlignment = Alignment.Center) {
             ActivityRing(s.usage.sessionPct / 100f, gradient, 24.dp, Modifier.fillMaxSize())
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (noWindow) "—:—" else if (active) formatRemaining(s.remainingMs) else "5:00:00", color = Text, fontFamily = PlexMono, fontSize = 38.sp, letterSpacing = (-.5).sp)
@@ -725,13 +720,16 @@ private fun planLabel(plan: String) = plan.trim().ifEmpty { "ChatGPT" }.split('_
     Text(value, color = color, fontFamily = PlexMono, fontSize = 17.sp, maxLines = 1); Spacer(Modifier.height(4.dp)); Label(label)
 }
 
-@Composable private fun Metric(label: String, pct: Int, color: Color, modifier: Modifier = Modifier) = Card(modifier, padding = S2, horizontalAlignment = Alignment.CenterHorizontally) {
+/** [large] is the two-up layout (weekly beside the plan tile): a bigger, bolder ring so it holds its own against the plan badge. */
+@Composable private fun Metric(label: String, pct: Int, color: Color, modifier: Modifier = Modifier, large: Boolean = false) =
+    Card(modifier, padding = S2, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
     Spacer(Modifier.height(4.dp))
-    Box(Modifier.size(62.dp), contentAlignment = Alignment.Center) {
-        ActivityRing(pct / 100f, listOf(lerp(color, Text, .35f), color), 7.dp, Modifier.fillMaxSize())
-        Text("$pct%", color = Text, fontFamily = PlexMono, fontSize = 13.sp)
+    Box(Modifier.size(if (large) 96.dp else 62.dp), contentAlignment = Alignment.Center) {
+        ActivityRing(pct / 100f, listOf(lerp(color, Text, .35f), color), if (large) 11.dp else 7.dp, Modifier.fillMaxSize())
+        Text("$pct%", color = Text, fontFamily = PlexMono, fontSize = if (large) 20.sp else 13.sp)
     }
-    Spacer(Modifier.height(S2)); Text(label, color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    Spacer(Modifier.height(S2)); Text(label, color = if (large) Text else Muted, fontSize = if (large) 15.sp else 13.sp, fontWeight = if (large) FontWeight.SemiBold else FontWeight.Medium)
+    if (large) Text("this week", color = Muted, fontSize = 12.sp)
 }
 
 // ─── History ───────────────────────────────────────────────────────────────────────────────────────────
@@ -941,7 +939,6 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
             if (s.canAddAccount) CapsuleButton("Add another account", shell.addAccount, style = CapsuleStyle.Secondary)
             CapsuleButton("Reconnect $name", { shell.reconnect(s.provider) }, style = CapsuleStyle.Secondary)
             CapsuleButton("Clear $name’s history", vm::clearHistory, style = CapsuleStyle.Secondary)
-            CapsuleButton("Re-run onboarding", { vm.route("onboarding") }, style = CapsuleStyle.Secondary)
             Spacer(Modifier.height(S1))
             CapsuleButton("Sign out of $name", { vm.signOut() }, style = CapsuleStyle.Destructive, haptic = HapticFeedbackType.LongPress)
             if (s.accounts.size > 1) Text("Your other ${if (s.accounts.size == 2) "account stays" else "accounts stay"} signed in.", color = Faint, fontSize = 12.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)

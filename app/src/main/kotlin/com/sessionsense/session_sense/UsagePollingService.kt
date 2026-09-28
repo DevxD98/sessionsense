@@ -159,6 +159,7 @@ class UsagePollingService : Service() {
             val expiring = current.accessToken.isEmpty() || (current.tokenExpMs > 0 && current.tokenExpMs - now < CODEX_REFRESH_MARGIN_MS)
             if (expiring && now - (lastRefreshAttempt[account.id] ?: 0) >= CODEX_REFRESH_RETRY_MS && !refresh()) return
             var (code, body, json) = whamUsage(current)
+            if (code != 200) Log.w(TAG, "Codex usage: HTTP $code${if (json) "" else " (not JSON)"}")
             // An access token can be revoked before its exp; mint a new one once and retry.
             if (code == 401 && !refreshed) { if (!refresh()) return; if (refreshed) whamUsage(current).let { code = it.first; body = it.second; json = it.third } }
             when {
@@ -185,12 +186,17 @@ class UsagePollingService : Service() {
         val now = System.currentTimeMillis()
         val last = app.repository.preferences()[k.CODEX_ANALYTICS]?.let(CodexAnalytics::fromJson)?.fetchedAtMs ?: 0L
         if (now - maxOf(last, lastAnalyticsAttempt[account.id] ?: 0L) < CODEX_ANALYTICS_MS) return
+        Log.i(TAG, "Codex analytics: fetching")
         lastAnalyticsAttempt[account.id] = now
         val end = LocalDate.now(); val range = "start_date=${end.minusDays(6)}&end_date=$end&group_by=day"
         fun get(path: String) = runCatching {
-            client.newCall(wham(account, "https://chatgpt.com/backend-api/wham/analytics/$path")).execute().use { if (it.code == 200) it.body?.string().orEmpty() else "" }
-        }.getOrDefault("")
-        val analytics = CodexAnalyticsParser.parse(get("daily-token-usage-breakdown?$range"), get("daily-workspace-usage-counts?$range&workspace_user=true"), now) ?: return
+            client.newCall(wham(account, "https://chatgpt.com/backend-api/wham/analytics/$path")).execute().use {
+                if (it.code != 200) Log.w(TAG, "Codex analytics ${path.substringBefore('?')}: HTTP ${it.code}")
+                if (it.code == 200) it.body?.string().orEmpty() else ""
+            }
+        }.onFailure { Log.w(TAG, "Codex analytics ${path.substringBefore('?')}: ${it.javaClass.simpleName}") }.getOrDefault("")
+        val analytics = CodexAnalyticsParser.parse(get("daily-token-usage-breakdown?$range"), get("daily-workspace-usage-counts?$range&workspace_user=true"), now)
+            ?: return Log.w(TAG, "Codex analytics: nothing usable in either response").let { }
         applicationContext.dataStore.edit { it[k.CODEX_ANALYTICS] = analytics.toJson() }
     }
 
