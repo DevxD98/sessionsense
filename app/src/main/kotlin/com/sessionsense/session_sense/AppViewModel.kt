@@ -18,6 +18,8 @@ data class AppUiState(
     val history: UsageHistory = UsageHistory(),
     val accounts: List<AccountOverview> = emptyList(),
     val activeAccountId: String = DEFAULT_ACCOUNT,
+    /** Codex accounts only: last 7 days by model, surface and message count. */
+    val codexAnalytics: CodexAnalytics? = null,
 ) {
     val activeAccount get() = accounts.firstOrNull { it.account.id == activeAccountId }?.account
     val canAddAccount get() = accounts.size < CredentialStore.MAX_ACCOUNTS
@@ -57,11 +59,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val accounts = combine(app.repository.accounts, app.repository.activeAccountId) { list, id -> list to id }
     val state = combine(app.repository.usage, app.repository.settings, app.repository.sessions, history, accounts) { usage, settings, sessions, history, (list, id) ->
         AppUiState(usage, settings, sessions, System.currentTimeMillis(), history, list, id)
-    }.combine(ticker) { s, now -> s.copy(now = now) }
+    }.combine(app.repository.codexAnalytics) { s, analytics -> s.copy(codexAnalytics = analytics) }
+        .combine(ticker) { s, now -> s.copy(now = now) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppUiState())
 
     fun route(value: String) = viewModelScope.launch { app.repository.setRoute(value) }
-    fun plan(value: String) = viewModelScope.launch { app.repository.setPlan(value) }
+    fun plan(value: String) = viewModelScope.launch { app.repository.setPlan(value); SessionSenseWidgets.updateAll(app, force = true) }
     fun toggle(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, value: Boolean) = viewModelScope.launch { app.repository.setBoolean(key, value) }
     fun quietHours(start: Int, end: Int) = viewModelScope.launch { app.repository.setQuietHours(start, end) }
     fun deleteSession(record: SessionRecord) = viewModelScope.launch { app.database.sessions().delete(record.id) }

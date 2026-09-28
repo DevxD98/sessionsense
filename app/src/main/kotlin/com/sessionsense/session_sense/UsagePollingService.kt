@@ -159,10 +159,14 @@ class UsagePollingService : Service() {
             val expiring = current.accessToken.isEmpty() || (current.tokenExpMs > 0 && current.tokenExpMs - now < CODEX_REFRESH_MARGIN_MS)
             if (expiring && now - (lastRefreshAttempt[account.id] ?: 0) >= CODEX_REFRESH_RETRY_MS && !refresh()) return
             var (code, body, json) = whamUsage(current)
+            if (code != 200) Log.w(TAG, "Codex usage: HTTP $code${if (json) "" else " (not JSON)"}")
             // An access token can be revoked before its exp; mint a new one once and retry.
             if (code == 401 && !refreshed) { if (!refresh()) return; if (refreshed) whamUsage(current).let { code = it.first; body = it.second; json = it.third } }
             when {
-                code == 200 -> CodexUsageParser.parse(body, System.currentTimeMillis())?.let { persist(account, it, active, label) } ?: offline(k)
+                code == 200 -> {
+                    CodexUsageParser.parse(body, System.currentTimeMillis())?.let { persist(account, it, active, label) } ?: offline(k)
+                    refreshCodexAnalytics(current)
+                }
                 // A Cloudflare challenge is also a 403, but an HTML one; only an API rejection means the login is gone.
                 code == 401 || (code == 403 && json) -> expire(account, active, label)
                 else -> offline(k)
@@ -172,13 +176,41 @@ class UsagePollingService : Service() {
         }
     }
 
-    private fun whamUsage(account: Account): Triple<Int, String, Boolean> = client.newCall(Request.Builder().url(CODEX_USAGE_URL)
+    /**
+     * Per-model, per-surface and message analytics from chatgpt.com's Analytics page. These are daily totals from an
+     * unofficial API, so they're fetched at most every 30 minutes (the last fetch time is stored, so restarts don't refetch).
+     * Any failure keeps the last good summary.
+     */
+    private suspend fun refreshCodexAnalytics(account: Account) {
+        val k = AccountKeys(account.id)
+        val now = System.currentTimeMillis()
+        val last = app.repository.preferences()[k.CODEX_ANALYTICS]?.let(CodexAnalytics::fromJson)?.fetchedAtMs ?: 0L
+        if (now - maxOf(last, lastAnalyticsAttempt[account.id] ?: 0L) < CODEX_ANALYTICS_MS) return
+        Log.i(TAG, "Codex analytics: fetching")
+        lastAnalyticsAttempt[account.id] = now
+        val end = LocalDate.now(); val range = "start_date=${end.minusDays(6)}&end_date=$end&group_by=day"
+        fun get(path: String) = runCatching {
+            client.newCall(wham(account, "https://chatgpt.com/backend-api/wham/analytics/$path")).execute().use {
+                if (it.code != 200) Log.w(TAG, "Codex analytics ${path.substringBefore('?')}: HTTP ${it.code}")
+                if (it.code == 200) it.body?.string().orEmpty() else ""
+            }
+        }.onFailure { Log.w(TAG, "Codex analytics ${path.substringBefore('?')}: ${it.javaClass.simpleName}") }.getOrDefault("")
+        val analytics = CodexAnalyticsParser.parse(get("daily-token-usage-breakdown?$range"), get("daily-workspace-usage-counts?$range&workspace_user=true"), now)
+            ?: return Log.w(TAG, "Codex analytics: nothing usable in either response").let { }
+        applicationContext.dataStore.edit { it[k.CODEX_ANALYTICS] = analytics.toJson() }
+    }
+
+    private val lastAnalyticsAttempt = mutableMapOf<String, Long>()
+
+    private fun wham(account: Account, url: String) = Request.Builder().url(url)
         .header("Authorization", "Bearer ${account.accessToken}")
         .header("ChatGPT-Account-Id", account.orgId)
         .header("Accept", "application/json")
         .header("User-Agent", WEB_USER_AGENT)
         .header("Referer", "https://chatgpt.com/")
-        .build()).execute().use { Triple(it.code, it.body?.string().orEmpty(), it.header("Content-Type").orEmpty().contains("json")) }
+        .build()
+
+    private fun whamUsage(account: Account): Triple<Int, String, Boolean> = client.newCall(wham(account, CODEX_USAGE_URL)).execute().use { Triple(it.code, it.body?.string().orEmpty(), it.header("Content-Type").orEmpty().contains("json")) }
 
     /** Mints a new access token from the stored chatgpt.com cookies, as the website does, and keeps any rotated cookies. */
     private fun refreshCodexToken(account: Account): Refresh {
@@ -231,6 +263,7 @@ class UsagePollingService : Service() {
             p[k.SESSION_RESET] = value.sessionResetMs; p[k.WEEKLY_RESET] = value.weeklyResetMs
             p[k.UPDATED] = value.lastUpdatedMs; p[k.CONNECTION] = "connected"
             p[k.PLAN_TYPE] = value.planType; p[k.SESSION_WINDOW] = value.sessionWindow
+            p[k.OPUS_REPORTED] = value.opusReported; p[k.SONNET_REPORTED] = value.sonnetReported
             p[k.PREV_SESSION] = transition.state.previousPct
             p[k.ACTIVE_START] = transition.state.activeStartMs
             p[k.ACTIVE_PEAK] = transition.state.peakPct
@@ -267,6 +300,7 @@ class UsagePollingService : Service() {
         private const val CODEX_ACTIVE_POLL_MS = 60_000L
         private const val CODEX_BACKGROUND_POLL_MS = 5 * 60_000L
         private const val CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+        private const val CODEX_ANALYTICS_MS = 30 * 60_000L
         // Refresh a day before the access token's exp; if chatgpt.com refuses (e.g. a Cloudflare challenge), retry every 30 min.
         private const val CODEX_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000L
         private const val CODEX_REFRESH_RETRY_MS = 30 * 60_000L
@@ -281,13 +315,16 @@ class UsagePollingService : Service() {
 object UsageParser {
     fun parse(body: String, now: Long): UsageSnapshot {
         val root = JSONObject(body)
-        fun pct(name: String): Int = when (val v = root.optJSONObject(name)?.opt("utilization")) {
-            is Number -> v.toDouble(); is String -> v.toDoubleOrNull() ?: 0.0; else -> 0.0
-        }.let { if (it > 0 && it < 1) 1 else it.toInt() }.coerceIn(0, 100) // any real usage (<1%) still starts a session
+        // null when the limit isn't reported at all (a null object or a null utilization), which is not the same as 0%.
+        fun reported(name: String): Int? = when (val v = root.optJSONObject(name)?.opt("utilization")) {
+            is Number -> v.toDouble(); is String -> v.toDoubleOrNull(); else -> null
+        }?.let { if (it > 0 && it < 1) 1 else it.toInt() }?.coerceIn(0, 100) // any real usage (<1%) still starts a session
+        fun pct(name: String): Int = reported(name) ?: 0
+        val opus = reported("seven_day_opus"); val sonnet = reported("seven_day_sonnet")
         fun reset(name: String): Long = root.optJSONObject(name)?.optString("resets_at")
             ?.takeIf(String::isNotBlank)?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: 0
-        return UsageSnapshot(pct("five_hour"), pct("seven_day"), pct("seven_day_opus"), pct("seven_day_sonnet"),
-            reset("five_hour"), reset("seven_day"), now, "connected")
+        return UsageSnapshot(pct("five_hour"), pct("seven_day"), opus ?: 0, sonnet ?: 0,
+            reset("five_hour"), reset("seven_day"), now, "connected", opusReported = opus != null, sonnetReported = sonnet != null)
     }
 }
 
@@ -364,7 +401,7 @@ class NotificationCenter(private val context: Context) {
             }
         }
         val oldOpus = old[k.OPUS] ?: 0
-        if (settings.modelAlerts && oldOpus < 80 && s.opusPct >= 80) once("opus:80:${s.weeklyResetMs}") {
+        if (settings.modelAlerts && s.opusReported && oldOpus < 80 && s.opusPct >= 80) once("opus:80:${s.weeklyResetMs}") {
             alert(203, "Opus quota at ${s.opusPct}%", "Your Opus allowance is nearing its limit.")
         }
         val weeklyRemaining = s.weeklyResetMs - System.currentTimeMillis()

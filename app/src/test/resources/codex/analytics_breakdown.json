@@ -1,0 +1,46 @@
+{
+  "data": [
+    {
+      "attribution": [
+        {"thread_source": "user", "turn_trigger": "composer", "model": "gpt-5.6-sol", "surface": "vscode", "value": 74.4477270815296},
+        {"thread_source": "guardian_review", "turn_trigger": "guardian_review", "model": "codex-auto-review", "surface": "vscode", "value": 0.13388018232714274}
+      ],
+      "date": "2026-09-24",
+      "product_surface_usage_values": {"cli": 0.0, "vscode": 100.0, "web": 0.0, "desktop_app": 0.0, "work_desktop": 0.0, "unknown": 0.0},
+      "models": [
+        {"model": "gpt-5.6-sol", "speed": "standard", "credits": 74.4477270815296},
+        {"model": "gpt-5.6-terra", "speed": "standard", "credits": 5.627069103019852},
+        {"model": "gpt-5.6-terra", "speed": "fast", "credits": 8.64532975368736},
+        {"model": "gpt-5.6-luna", "speed": "standard", "credits": 0.5793568713941927},
+        {"model": "codex-auto-review", "speed": "standard", "credits": 0.13388018232714274},
+        {"model": "gpt-6-astra", "speed": "standard", "credits": 10.566637008041845},
+        {"model": "gpt-image-2", "speed": "standard", "credits": 0.0}
+      ]
+    },
+    {
+      "attribution": [],
+      "date": "2026-09-25",
+      "product_surface_usage_values": {"cli": 0.0, "vscode": 64.51190957659554, "web": 0.0, "desktop_app": 32.45582493254513, "work_desktop": 0.3359712131463229, "unknown": 0.0},
+      "models": [
+        {"model": "gpt-5.6-sol", "speed": "standard", "credits": 58.990016051639095},
+        {"model": "gpt-5.6-terra", "speed": "standard", "credits": 3.116420675449214},
+        {"model": "gpt-5.6-terra", "speed": "fast", "credits": 31.905142183452583},
+        {"model": "gpt-5.6-luna", "speed": "standard", "credits": 2.898658186948007},
+        {"model": "codex-auto-review", "speed": "standard", "credits": 0.0},
+        {"model": "gpt-6-astra", "speed": "standard", "credits": 0.0},
+        {"model": "gpt-image-2", "speed": "standard", "credits": 0.3934686247980769}
+      ]
+    },
+    {
+      "attribution": [],
+      "date": "2026-09-28",
+      "product_surface_usage_values": {"cli": 0.0, "vscode": 0.0, "web": 0.0, "desktop_app": 0.0, "work_desktop": 0.0, "unknown": 0.0},
+      "models": [
+        {"model": "gpt-5.6-sol", "speed": "standard", "credits": 0.0},
+        {"model": "gpt-5.6-terra", "speed": "fast", "credits": 0.0}
+      ]
+    }
+  ],
+  "units": "percent",
+  "group_by": "day"
+}

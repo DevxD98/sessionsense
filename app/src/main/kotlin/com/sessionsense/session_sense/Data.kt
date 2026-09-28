@@ -99,7 +99,13 @@ data class UsageSnapshot(
     val planType: String = "",
     /** False when the provider reported no 5-hour window (Codex sometimes returns only the weekly one). */
     val sessionWindow: Boolean = true,
+    /** Whether claude.ai reports a separate Opus / Sonnet weekly limit. Most plans have none: then the pct is meaningless. */
+    val opusReported: Boolean = false,
+    val sonnetReported: Boolean = false,
 )
+
+/** The Claude plan the user picked in Settings, as shown on a plan tile. */
+fun claudePlanName(plan: String) = when (plan) { "max5" -> "Max 5×"; "max20" -> "Max 20×"; else -> "Pro" }
 
 data class UserSettings(
     val route: String = "onboarding",
@@ -146,12 +152,17 @@ class AccountKeys(val accountId: String) {
     val ALERT_FLAGS = stringSetPreferencesKey("${prefix}alert_flags")
     val PLAN_TYPE = stringPreferencesKey("${prefix}plan_type")
     val SESSION_WINDOW = booleanPreferencesKey("${prefix}session_window")
+    val OPUS_REPORTED = booleanPreferencesKey("${prefix}opus_reported")
+    val SONNET_REPORTED = booleanPreferencesKey("${prefix}sonnet_reported")
+    /** Parsed [CodexAnalytics] (JSON), refreshed every 30 minutes for Codex accounts. */
+    val CODEX_ANALYTICS = stringPreferencesKey("${prefix}codex_analytics")
 
     fun usage(p: Preferences) = UsageSnapshot(p[SESSION] ?: 0, p[WEEKLY] ?: 0, p[OPUS] ?: 0, p[SONNET] ?: 0,
-        p[SESSION_RESET] ?: 0, p[WEEKLY_RESET] ?: 0, p[UPDATED] ?: 0, p[CONNECTION] ?: "idle", p[PLAN_TYPE] ?: "", p[SESSION_WINDOW] ?: true)
+        p[SESSION_RESET] ?: 0, p[WEEKLY_RESET] ?: 0, p[UPDATED] ?: 0, p[CONNECTION] ?: "idle", p[PLAN_TYPE] ?: "", p[SESSION_WINDOW] ?: true,
+        p[OPUS_REPORTED] ?: false, p[SONNET_REPORTED] ?: false)
 
     fun clear(p: MutablePreferences) = listOf(PLAN, SESSION, WEEKLY, OPUS, SONNET, SESSION_RESET, WEEKLY_RESET, UPDATED, CONNECTION,
-        PREV_SESSION, ACTIVE_START, ACTIVE_PEAK, ACTIVE_RESET, LAST_SAMPLE, ALERT_FLAGS, PLAN_TYPE, SESSION_WINDOW).forEach { p.remove(it) }
+        PREV_SESSION, ACTIVE_START, ACTIVE_PEAK, ACTIVE_RESET, LAST_SAMPLE, ALERT_FLAGS, PLAN_TYPE, SESSION_WINDOW, OPUS_REPORTED, SONNET_REPORTED, CODEX_ANALYTICS).forEach { p.remove(it) }
 }
 
 data class AccountOverview(val account: Account, val usage: UsageSnapshot)
@@ -172,6 +183,7 @@ class SessionRepository(private val context: Context, private val db: SessionDat
             p[Keys.MODEL_ALERTS] ?: true, p[Keys.DIGEST] ?: true)
     }
     val sessions = activeAccountId.flatMapLatest { db.sessions().observeAll(it) }
+    val codexAnalytics = combine(context.dataStore.data, activeAccountId) { p, id -> p[AccountKeys(id).CODEX_ANALYTICS]?.let(CodexAnalytics::fromJson) }.distinctUntilChanged()
     fun samplesSince(since: Long) = activeAccountId.flatMapLatest { db.samples().observeSince(it, since) }
 
     suspend fun activeId() = activeAccountId.first()
