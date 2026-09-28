@@ -527,13 +527,18 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
     UpdatePill()
     SessionHero(s)
     Spacer(Modifier.height(S5))
-    // Codex reports no per-model quotas: show its weekly window next to the plan it runs on.
-    if (s.provider == Provider.CODEX) Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(S2)) {
+    // Per-model rings only for limits claude.ai actually reports (most plans have none, and Codex never does);
+    // otherwise the weekly window sits next to the plan it runs on.
+    val models = if (s.provider == Provider.CLAUDE) listOfNotNull(Triple("Opus", s.usage.opusPct, Amber).takeIf { s.usage.opusReported },
+        Triple("Sonnet", s.usage.sonnetPct, Teal).takeIf { s.usage.sonnetReported }) else emptyList()
+    if (models.isEmpty()) Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(S2)) {
         Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f).fillMaxHeight())
-        PlanTile(s.usage.planType, s.usage.weeklyResetMs, s.now, Modifier.weight(1f).fillMaxHeight())
+        val plan = if (s.provider == Provider.CODEX) planLabel(s.usage.planType) else "Claude ${claudePlanName(s.settings.plan)}"
+        PlanTile(s.provider, plan, s.usage.weeklyResetMs, s.now, Modifier.weight(1f).fillMaxHeight())
     }
-    else Row(horizontalArrangement = Arrangement.spacedBy(S2)) { Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f)); Metric("Opus", s.usage.opusPct, Amber, Modifier.weight(1f)); Metric("Sonnet", s.usage.sonnetPct, Teal, Modifier.weight(1f)) }
+    else Row(horizontalArrangement = Arrangement.spacedBy(S2)) { Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f)); models.forEach { (label, pct, color) -> Metric(label, pct, color, Modifier.weight(1f)) } }
     Spacer(Modifier.height(S2))
+    if (s.provider == Provider.CODEX) s.codexAnalytics?.let { CodexModelsCard(it); Spacer(Modifier.height(S2)) }
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).background(Teal.copy(alpha = .14f), CircleShape), contentAlignment = Alignment.Center) { Text("↗", color = Teal, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
@@ -682,13 +687,13 @@ private fun providerName(p: Provider) = if (p == Provider.CODEX) "ChatGPT · Cod
     }
 }
 
-/** Codex's plan, as chatgpt.com reports it, beside the weekly ring. */
-@Composable private fun PlanTile(plan: String, weeklyResetMs: Long, now: Long, modifier: Modifier) = Card(modifier, padding = S2, horizontalAlignment = Alignment.CenterHorizontally) {
+/** The plan an account runs on (reported by chatgpt.com for Codex, picked in Settings for Claude), beside the weekly ring. */
+@Composable private fun PlanTile(provider: Provider, plan: String, weeklyResetMs: Long, now: Long, modifier: Modifier) = Card(modifier, padding = S2, horizontalAlignment = Alignment.CenterHorizontally) {
     Spacer(Modifier.height(4.dp))
-    Box(Modifier.size(62.dp).clip(CircleShape).background(Text.copy(alpha = .08f)), contentAlignment = Alignment.Center) { ProviderLogo(Provider.CODEX, Modifier.size(32.dp)) }
+    Box(Modifier.size(62.dp).clip(CircleShape).background(providerTint(provider).copy(alpha = .10f)), contentAlignment = Alignment.Center) { ProviderLogo(provider, Modifier.size(32.dp)) }
     Spacer(Modifier.height(S2))
-    Text(planLabel(plan), color = Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-    Text(if (weeklyResetMs > now) "week resets ${clock(weeklyResetMs, "EEE")}" else "ChatGPT plan", color = Muted, fontSize = 12.sp, maxLines = 1)
+    Text(plan, color = Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    Text(if (weeklyResetMs > now) "week resets ${clock(weeklyResetMs, "EEE")}" else "${providerName(provider)} plan", color = Muted, fontSize = 12.sp, maxLines = 1)
 }
 
 private fun planLabel(plan: String) = plan.trim().ifEmpty { "ChatGPT" }.split('_', ' ').joinToString(" ") { it.replaceFirstChar(Char::uppercaseChar) }
@@ -734,6 +739,7 @@ private fun planLabel(plan: String) = plan.trim().ifEmpty { "ChatGPT" }.split('_
 @Composable private fun History(vm: AppViewModel, s: AppUiState) = Page("History", trailing = { AccountChip(s) }) {
     Row(horizontalArrangement = Arrangement.spacedBy(S2)) { Stat("Weekly", "${s.usage.weeklyPct}%", Modifier.weight(1f)); val weekCount = s.sessionsThisWeek + if (s.activeWindowStartMs > 0) 1 else 0; Stat("7-day", "$weekCount", Modifier.weight(1f), if (weekCount == 1) "session" else "sessions"); Stat("Active", "${s.weeklyStreakDays}/7", Modifier.weight(1f), "days") }
     if (s.provider == Provider.CLAUDE) { Spacer(Modifier.height(S2)); Stat("Estimated tokens this week", formatTokens(s.estimatedTokens), Modifier.fillMaxWidth()) }
+    if (s.provider == Provider.CODEX) s.codexAnalytics?.let { Spacer(Modifier.height(S4)); CodexHistorySection(it, s.now) }
     Spacer(Modifier.height(S4)); SectionLabel("TODAY")
     val dayStart = remember(s.now / 60_000) { startOfDayMs() }
     val today = remember(s.history, dayStart) { s.history.between(dayStart, Long.MAX_VALUE) }
@@ -916,7 +922,8 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
         Card(padding = 0.dp) {
             Toggle("Session and reset alerts", s.settings.sessionAlerts) { vm.toggle(Keys.SESSION_ALERTS, it) }; Divider()
             Toggle("Weekly quota alerts", s.settings.weeklyAlerts) { vm.toggle(Keys.WEEKLY_ALERTS, it) }; Divider()
-            Toggle("Per-model alerts", s.settings.modelAlerts) { vm.toggle(Keys.MODEL_ALERTS, it) }; Divider()
+            // Only meaningful when claude.ai reports a separate Opus limit for this plan.
+            if (s.usage.opusReported) { Toggle("Per-model alerts", s.settings.modelAlerts) { vm.toggle(Keys.MODEL_ALERTS, it) }; Divider() }
             Toggle("Monday digest", s.settings.weeklyDigest) { vm.toggle(Keys.DIGEST, it) }; Divider()
             Toggle("Quiet hours", s.settings.quietHours) { vm.toggle(Keys.QUIET, it) }
             AnimatedVisibility(s.settings.quietHours, enter = fadeIn(smooth()) + expandVertically(smooth()), exit = fadeOut(smooth()) + shrinkVertically(smooth())) {

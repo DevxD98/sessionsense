@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "date": "2026-09-24",
+      "totals": {"users": 1, "threads": 7, "turns": 45, "credits": 616.7581980000001, "uncached_text_input_tokens": 2409509, "cached_text_input_tokens": 36187136, "text_output_tokens": 177882, "text_total_tokens": 38774527},
+      "clients": [{"client_id": "CODEX_IDE_VSCODE", "users": 1, "threads": 7, "turns": 45, "credits": 616.7581980000001, "uncached_text_input_tokens": 2409509, "cached_text_input_tokens": 36187136, "text_output_tokens": 177882, "text_total_tokens": 38774527}],
+      "models": [
+        {"model": "gpt-5.6-luna", "credits": 0.0, "users": 1, "threads": 4, "turns": 5},
+        {"model": "gpt-5.6-sol", "credits": 0.0, "users": 1, "threads": 1, "turns": 29},
+        {"model": "gpt-5.6-terra", "credits": 0.0, "users": 1, "threads": 3, "turns": 10},
+        {"model": "gpt-6-astra", "credits": 0.0, "users": 1, "threads": 1, "turns": 1}
+      ]
+    },
+    {
+      "date": "2026-09-25",
+      "totals": {"users": 1, "threads": 16, "turns": 59, "credits": 600.128582, "uncached_text_input_tokens": 2972427, "cached_text_input_tokens": 53675264, "text_output_tokens": 220608, "text_total_tokens": 56868299},
+      "clients": [],
+      "models": [
+        {"model": "gpt-5.6-luna", "credits": 0.0, "users": 1, "threads": 7, "turns": 18},
+        {"model": "gpt-5.6-sol", "credits": 0.0, "users": 1, "threads": 7, "turns": 24},
+        {"model": "gpt-5.6-terra", "credits": 0.0, "users": 1, "threads": 4, "turns": 17}
+      ]
+    },
+    {
+      "date": "2026-09-27",
+      "totals": {"users": 0, "threads": 0, "turns": 0, "credits": 309.00347099999993, "uncached_text_input_tokens": 810394, "cached_text_input_tokens": 22854400, "text_output_tokens": 104427, "text_total_tokens": 23769221},
+      "clients": []
+    }
+  ],
+  "balance_unit": "credit",
+  "group_by": "day"
+}

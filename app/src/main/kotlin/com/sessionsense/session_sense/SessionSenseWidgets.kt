@@ -58,7 +58,7 @@ object SessionSenseWidgets {
         val s = repo.snapshot()
         val now = System.currentTimeMillis()
         val accounts = (context.applicationContext as SessionSenseApp).credentials.accounts.value
-        val signature = listOf(repo.activeId(), accounts.size, s.sessionPct, s.weeklyPct, s.opusPct, s.sonnetPct, s.connection, s.sessionResetMs, s.weeklyResetMs, s.planType, s.sessionWindow,
+        val signature = listOf(repo.activeId(), accounts.size, s.sessionPct, s.weeklyPct, s.opusPct, s.sonnetPct, s.connection, s.sessionResetMs, s.weeklyResetMs, s.planType, s.sessionWindow, s.opusReported, s.sonnetReported,
             (s.sessionResetMs - now).coerceAtLeast(0) / 60_000, startOfDayMs()).joinToString()
         if (!force && signature == lastSignature) return
         lastSignature = signature
@@ -67,8 +67,12 @@ object SessionSenseWidgets {
 }
 
 /** [account] is the viewed account, set only when more than one account is tracked (its name and provider are shown then). */
-private class WidgetData(val usage: UsageSnapshot, val today: List<UsageSample>, val now: Long, val account: Account?, val provider: Provider) {
+private class WidgetData(val usage: UsageSnapshot, val today: List<UsageSample>, val now: Long, val account: Account?, val provider: Provider, val claudePlan: String) {
     val codex get() = provider == Provider.CODEX
+    /** Codex never reports a per-model limit, and most Claude plans don't either; then the plan fills that slot. */
+    val opus get() = !codex && usage.opusReported
+    val sonnet get() = !codex && usage.sonnetReported
+    val plan get() = if (codex) planName(usage) else claudePlan
 }
 
 private fun minuteTicker() = flow { while (true) { emit(System.currentTimeMillis()); delay(60_000 - System.currentTimeMillis() % 60_000) } }
@@ -83,13 +87,14 @@ private abstract class UsageWidget : GlanceAppWidget() {
         val click = actionStartActivity(Intent(context, MainActivity::class.java))
         // Glance keeps a session alive between updates and only recomposes it, so the content follows the
         // repository instead of a snapshot taken here; otherwise an account switch shows up only once the session ends.
-        val data = combine(app.repository.usage, app.repository.activeAccountId, app.credentials.accounts, minuteTicker()) { usage, active, accounts, now ->
-            Triple(usage, accounts, active) to now
-        }.mapLatest { (state, now) ->
+        val data = combine(app.repository.usage, app.repository.activeAccountId, app.credentials.accounts, app.repository.settings, minuteTicker()) { usage, active, accounts, settings, now ->
+            Triple(usage, accounts, active) to (now to settings.plan)
+        }.mapLatest { (state, clock) ->
             val (usage, accounts, active) = state
+            val (now, plan) = clock
             val viewed = accounts.firstOrNull { it.id == active }
             WidgetData(usage, if (large) app.database.samples().since(active, startOfDayMs()) else emptyList(), now,
-                viewed?.takeIf { accounts.size > 1 }, viewed?.provider ?: Provider.CLAUDE)
+                viewed?.takeIf { accounts.size > 1 }, viewed?.provider ?: Provider.CLAUDE, claudePlanName(plan))
         }
         val initial = data.first()
         provideContent {
@@ -151,7 +156,7 @@ private class LargeWidgetImpl : UsageWidget() {
         Row(GlanceModifier.fillMaxWidth()) {
             Footer("RESETS", if (s.sessionPct > 0 && s.sessionResetMs > d.now) clockOf(s.sessionResetMs, "h:mm a") else "—", GlanceModifier.defaultWeight())
             Footer("WEEKLY RESET", if (s.weeklyResetMs > d.now) clockOf(s.weeklyResetMs, "EEE h a") else "—", GlanceModifier.defaultWeight())
-            if (d.codex) Footer("PLAN", planName(s), GlanceModifier.defaultWeight()) else Footer("SONNET", "${s.sonnetPct}%", GlanceModifier.defaultWeight())
+            if (d.sonnet) Footer("SONNET", "${s.sonnetPct}%", GlanceModifier.defaultWeight()) else Footer("PLAN", d.plan, GlanceModifier.defaultWeight())
         }
     }
 }
@@ -173,10 +178,10 @@ class SessionSenseWidgetLarge : GlanceAppWidgetReceiver() { override val glanceA
 @Composable private fun RingsWithLegend(context: Context, d: WidgetData, ring: Float) {
     val s = d.usage
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        // Codex has no per-model quota, so its third ring is dropped and the plan takes the Opus row.
-        val shown = if (d.codex) listOf(sessionRing(s), weeklyRing(s)) else listOf(sessionRing(s), weeklyRing(s), Ring(s.opusPct / 100f, lerp(Amber, Text, .3f), Amber))
+        // Without a reported Opus limit the third ring is dropped and the plan takes the Opus row.
+        val shown = if (d.opus) listOf(sessionRing(s), weeklyRing(s), Ring(s.opusPct / 100f, lerp(Amber, Text, .3f), Amber)) else listOf(sessionRing(s), weeklyRing(s))
         Image(ImageProvider(rings(context, ring, shown, stroke = ring * .105f)),
-            contentDescription = if (d.codex) "Session ${s.sessionPct}%, weekly ${s.weeklyPct}%" else "Session ${s.sessionPct}%, weekly ${s.weeklyPct}%, Opus ${s.opusPct}%", modifier = GlanceModifier.size(ring.dp))
+            contentDescription = if (d.opus) "Session ${s.sessionPct}%, weekly ${s.weeklyPct}%, Opus ${s.opusPct}%" else "Session ${s.sessionPct}%, weekly ${s.weeklyPct}%", modifier = GlanceModifier.size(ring.dp))
         Spacer(GlanceModifier.width(16.dp))
         Column(GlanceModifier.defaultWeight()) {
             val session = if (d.account != null) "${d.provider.label} · ${d.account.name}" else "Session"
@@ -186,7 +191,7 @@ class SessionSenseWidgetLarge : GlanceAppWidgetReceiver() { override val glanceA
             Spacer(GlanceModifier.height(6.dp))
             Legend("Weekly", "${s.weeklyPct}%", if (s.weeklyResetMs > d.now) "resets ${clockOf(s.weeklyResetMs, "EEE")}" else null, Blue)
             Spacer(GlanceModifier.height(6.dp))
-            if (d.codex) Legend("Plan", planName(s), null, Text) else Legend("Opus", "${s.opusPct}%", null, Amber)
+            if (d.opus) Legend("Opus", "${s.opusPct}%", null, Amber) else Legend("Plan", d.plan, null, Text)
         }
     }
 }
