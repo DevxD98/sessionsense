@@ -27,7 +27,10 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -457,6 +460,8 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
 @Composable private fun ShellContent(vm: AppViewModel, state: AppUiState, start: String) {
     val nav = rememberNavController()
     val cardHaze = remember { HazeState() }; val barHaze = remember { HazeState() }
+    // Liquid glass reads the screen behind the tab bar from this layer; older phones use the Haze blur instead.
+    val backdrop = if (liquidGlassSupported) rememberGraphicsLayer() else null
     val ringAnchor = remember { mutableStateOf<Offset?>(null) }
     LaunchedEffect(start) { if (start != "home") nav.navigate(start) }
     val tab = tabIndex(nav.currentBackStackEntryAsState().value)
@@ -464,7 +469,7 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
     val glow by animateFloatAsState(if (tab == 0) 1f else .45f, spring(stiffness = Spring.StiffnessLow), label = "glowIntensity")
     CompositionLocalProvider(LocalHazeState provides cardHaze, LocalRingAnchor provides ringAnchor) {
         Box(Modifier.fillMaxSize().background(Bg)) {
-            Box(Modifier.fillMaxSize().hazeSource(barHaze)) {
+            Box(Modifier.fillMaxSize().then(if (backdrop != null) Modifier.drawWithContent { backdrop.record { this@drawWithContent.drawContent() }; drawLayer(backdrop) } else Modifier.hazeSource(barHaze))) {
                 Backdrop(Modifier.matchParentSize().hazeSource(cardHaze), glowColor, glow) { if (tab == 0) ringAnchor.value else null }
                 val slide = { from: NavBackStackEntry, to: NavBackStackEntry -> sign((tabIndex(to) - tabIndex(from)).toFloat()).toInt().takeIf { it != 0 } ?: 1 }
                 NavHost(nav, "home", Modifier.fillMaxSize().statusBarsPadding(),
@@ -475,32 +480,51 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
                     composable("home") { Home(vm, state) }; composable("history") { History(vm, state) }; composable("settings") { Settings(vm, state) }
                 }
             }
-            FloatingTabBar(tab, barHaze, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = S2)) { i ->
+            FloatingTabBar(tab, barHaze, backdrop, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = S2)) { i ->
                 nav.navigate(Tabs[i].route) { popUpTo("home"); launchSingleTop = true }
             }
         }
     }
 }
 
-@Composable private fun FloatingTabBar(selected: Int, haze: HazeState, modifier: Modifier, onSelect: (Int) -> Unit) {
+@Composable private fun FloatingTabBar(selected: Int, haze: HazeState, backdrop: GraphicsLayer?, modifier: Modifier, onSelect: (Int) -> Unit) {
     val haptics = LocalHapticFeedback.current
+    val liquid = backdrop != null && liquidGlassSupported
+    // The pill's position in tab slots. Its speed stretches it like a droplet in liquid mode.
+    val pillX = remember { Animatable(selected.toFloat()) }
+    LaunchedEffect(selected) { pillX.animateTo(selected.toFloat(), spring(dampingRatio = .6f, stiffness = 260f)) }
     BoxWithConstraints(modifier.padding(horizontal = 44.dp).fillMaxWidth().height(TabBarHeight)
-        .shadow(24.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
-        .clip(CircleShape).hazeEffect(haze, BarGlass)
-        // Specular sheen on the upper half and a bright rim that fades down the sides, like light catching glass.
-        .drawWithContent { drawContent(); drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = .10f), .55f to Color.Transparent)) }
-        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .34f), Color.White.copy(alpha = .08f), Color.White.copy(alpha = .14f))), CircleShape).padding(6.dp)) {
-        val slot = maxWidth / Tabs.size
-        val x by animateDpAsState(slot * selected, spring(dampingRatio = .72f, stiffness = Spring.StiffnessMediumLow), label = "indicator")
-        // A frosted pill under the selected tab (the icon and label carry the teal).
-        Box(Modifier.offset { IntOffset(x.roundToPx(), 0) }.width(slot).fillMaxHeight().clip(CircleShape)
-            .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = .17f), Color.White.copy(alpha = .07f))))
-            .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .28f), Color.White.copy(alpha = .06f))), CircleShape))
-        Row(Modifier.fillMaxSize()) {
+        .shadow(28.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)) {
+        val pad = 6.dp
+        val slot = (maxWidth - pad * 2) / Tabs.size
+        if (liquid) {
+            val density = LocalDensity.current
+            val light = rememberTiltLight()
+            LiquidGlassSurface(backdrop!!, pill = {
+                with(density) {
+                    val stretch = (kotlin.math.abs(pillX.velocity) / 7f).coerceAtMost(.5f)
+                    val w = slot.toPx() * (1f + stretch); val h = (TabBarHeight - pad * 2).toPx() * (1f - stretch * .16f)
+                    val cx = pad.toPx() + slot.toPx() * (pillX.value + .5f); val cy = TabBarHeight.toPx() / 2f
+                    Rect(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f)
+                }
+            }, light, Modifier.matchParentSize())
+        } else {
+            Box(Modifier.matchParentSize().clip(CircleShape).hazeEffect(haze, BarGlass)
+                // Specular sheen on the upper half and a bright rim that fades down the sides, like light catching glass.
+                .drawWithContent { drawContent(); drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = .10f), .55f to Color.Transparent)) }
+                .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .34f), Color.White.copy(alpha = .08f), Color.White.copy(alpha = .14f))), CircleShape))
+            // A frosted pill under the selected tab (the icon and label carry the teal).
+            Box(Modifier.padding(pad).offset { IntOffset((slot * pillX.value).roundToPx(), 0) }.width(slot).fillMaxHeight().clip(CircleShape)
+                .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = .17f), Color.White.copy(alpha = .07f))))
+                .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .28f), Color.White.copy(alpha = .06f))), CircleShape))
+        }
+        Row(Modifier.fillMaxSize().padding(pad)) {
             Tabs.forEachIndexed { i, tab ->
                 val active = i == selected
                 val tint by animateColorAsState(if (active) Teal else Muted, smooth(), label = "tabTint")
-                val source = remember { MutableInteractionSource() }; val scale = pressScale(source)
+                // The selected icon swells a little under the pill's lens.
+                val grow by animateFloatAsState(if (active) 1.1f else 1f, spring(dampingRatio = .5f, stiffness = Spring.StiffnessMedium), label = "tabGrow")
+                val source = remember { MutableInteractionSource() }; val scale = pressScale(source) * grow
                 Column(Modifier.weight(1f).fillMaxHeight().graphicsLayer { scaleX = scale; scaleY = scale }
                     .selectable(active, interactionSource = source, indication = null, role = Role.Tab) { if (!active) { haptics.performHapticFeedback(HapticFeedbackType.SegmentTick); onSelect(i) } },
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
