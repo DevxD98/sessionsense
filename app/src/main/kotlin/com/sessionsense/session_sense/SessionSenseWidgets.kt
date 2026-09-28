@@ -12,14 +12,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.SweepGradient
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.mapLatest
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
@@ -27,10 +20,22 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.*
-import androidx.glance.action.Action
-import androidx.glance.action.clickable
 import androidx.glance.appwidget.*
-import androidx.glance.appwidget.action.actionStartActivity
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
+import android.os.Bundle
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import android.widget.RemoteViews
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.DpSize
+import android.view.View
 import androidx.glance.layout.*
 import androidx.glance.text.*
 import androidx.glance.unit.ColorProvider
@@ -51,23 +56,83 @@ private val Violet = Color(0xFFB79BFF)
 
 object SessionSenseWidgets {
     @Volatile private var lastSignature: String? = null
+    private val renderLock = Mutex()
 
     /** Called by [UsagePollingService] on every poll; only re-renders when what the widgets show actually changes. */
     suspend fun updateAll(context: Context, force: Boolean = false) {
         val repo = (context.applicationContext as SessionSenseApp).repository
         val s = repo.snapshot()
         val now = System.currentTimeMillis()
-        val accounts = (context.applicationContext as SessionSenseApp).credentials.accounts.value
-        val signature = listOf(repo.activeId(), accounts.size, s.sessionPct, s.weeklyPct, s.opusPct, s.sonnetPct, s.connection, s.sessionResetMs, s.weeklyResetMs, s.planType, s.sessionWindow, s.opusReported, s.sonnetReported,
-            (s.sessionResetMs - now).coerceAtLeast(0) / 60_000, startOfDayMs()).joinToString()
+        val accounts = repo.accounts.first()
+        // Every account's usage, not only the viewed one: a widget can be switched to any account.
+        val signature = (listOf(repo.activeId(), (s.sessionResetMs - now).coerceAtLeast(0) / 60_000, startOfDayMs()) + accounts.flatMap { (a, u) ->
+            listOf(a.id, a.name, a.connected, u.sessionPct, u.weeklyPct, u.opusPct, u.sonnetPct, u.connection, u.sessionResetMs, u.weeklyResetMs, u.planType, u.sessionWindow, u.opusReported, u.sonnetReported,
+                (u.sessionResetMs - now).coerceAtLeast(0) / 60_000)
+        }).joinToString()
         if (!force && signature == lastSignature) return
         lastSignature = signature
-        listOf(SmallWidget, MediumWidget, LargeWidget).forEach { it.updateAll(context) }
+        val manager = AppWidgetManager.getInstance(context)
+        listOf(SmallWidget, MediumWidget, LargeWidget).forEach { render(context, it, manager.getAppWidgetIds(ComponentName(context, it.receiver)).toList()) }
     }
+
+
+    /**
+     * Widgets are plain RemoteViews pushed by the app rather than Glance sessions, so the app controls which account each
+     * one shows. The card itself is still composed with Glance.
+     */
+    internal suspend fun render(context: Context, widget: UsageWidget, ids: List<Int>) = renderLock.withLock {
+        if (ids.isEmpty()) return@withLock
+        val manager = AppWidgetManager.getInstance(context)
+        val pages = widget.pages(context)
+        ids.forEach { id ->
+            val o = manager.getAppWidgetOptions(id)
+            // Portrait size, as Glance used: the launcher reports min width x max height for it.
+            val size = DpSize((o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: widget.defaultSize.width.value.toInt()).dp,
+                (o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: widget.defaultSize.height.value.toInt()).dp)
+            val index = pages.indexOfFirst { it.account?.id == shownAccount(context, id) }.coerceAtLeast(0)
+            val views = runCatching { frame(context, widget, id, pages, index, size) }.onFailure { Log.w("SessionSense", "Widget render failed", it) }.getOrNull() ?: return@forEach
+            manager.updateAppWidget(id, views)
+        }
+    }
+
+    /** A tap on the page dots: show the next account (wrapping round) on that widget only. */
+    internal suspend fun showNext(context: Context, widget: UsageWidget, id: Int) {
+        val pages = widget.pages(context)
+        if (pages.size < 2) return render(context, widget, listOf(id))
+        val current = pages.indexOfFirst { it.account?.id == shownAccount(context, id) }.coerceAtLeast(0)
+        pages[(current + 1) % pages.size].account?.let { shown(context).edit().putString("$id", it.id).apply() }
+        render(context, widget, listOf(id))
+    }
+
+    internal fun forget(context: Context, ids: IntArray) = shown(context).edit().apply { ids.forEach { remove("$it") } }.apply()
+
+    /** The account each widget was switched to; a widget never switched shows the account being viewed in the app. */
+    private fun shown(context: Context) = context.getSharedPreferences("widget_accounts", Context.MODE_PRIVATE)
+    private fun shownAccount(context: Context, id: Int) = shown(context).getString("$id", null)
+
+    @OptIn(ExperimentalGlanceRemoteViewsApi::class)
+    private suspend fun frame(context: Context, widget: UsageWidget, id: Int, pages: List<WidgetData>, index: Int, size: DpSize): RemoteViews {
+        val card = GlanceRemoteViews().compose(context, size) {
+            CompositionLocalProvider(LocalSize provides size) {
+                Frame(context, overlay = { if (pages.size > 1) PageDots(pages.size, index) }) { with(widget) { Content(context, pages[index]) } }
+            }
+        }.remoteViews
+        return RemoteViews(context.packageName, R.layout.widget_frame).apply {
+            addView(R.id.card, card)
+            setOnClickPendingIntent(R.id.card, PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            if (pages.size > 1) {
+                setViewVisibility(R.id.page_next, View.VISIBLE)
+                val next = Intent(context, widget.receiver).setAction(ACTION_NEXT_ACCOUNT).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                setOnClickPendingIntent(R.id.page_next, PendingIntent.getBroadcast(context, id, next, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            }
+        }
+    }
+
+    internal const val ACTION_NEXT_ACCOUNT = "com.sessionsense.session_sense.widget.NEXT_ACCOUNT"
 }
 
-/** [account] is the viewed account, set only when more than one account is tracked (its name and provider are shown then). */
-private class WidgetData(val usage: UsageSnapshot, val today: List<UsageSample>, val now: Long, val account: Account?, val provider: Provider, val claudePlan: String) {
+/** One widget page. [account] is set only when more than one account is tracked (its name and provider are shown then). */
+internal class WidgetData(val usage: UsageSnapshot, val today: List<UsageSample>, val now: Long, val account: Account?, val provider: Provider, val claudePlan: String) {
     val codex get() = provider == Provider.CODEX
     /** Codex never reports a per-model limit, and most Claude plans don't either; then the plan fills that slot. */
     val opus get() = !codex && usage.opusReported
@@ -75,38 +140,22 @@ private class WidgetData(val usage: UsageSnapshot, val today: List<UsageSample>,
     val plan get() = if (codex) planName(usage) else claudePlan
 }
 
-private fun minuteTicker() = flow { while (true) { emit(System.currentTimeMillis()); delay(60_000 - System.currentTimeMillis() % 60_000) } }
-
-@OptIn(ExperimentalCoroutinesApi::class)
-private abstract class UsageWidget : GlanceAppWidget() {
-    override val sizeMode: SizeMode = SizeMode.Exact
-
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val app = context.applicationContext as SessionSenseApp
-        val large = this is LargeWidgetImpl
-        val click = actionStartActivity(Intent(context, MainActivity::class.java))
-        // Glance keeps a session alive between updates and only recomposes it, so the content follows the
-        // repository instead of a snapshot taken here; otherwise an account switch shows up only once the session ends.
-        val data = combine(app.repository.usage, app.repository.activeAccountId, app.credentials.accounts, app.repository.settings, minuteTicker()) { usage, active, accounts, settings, now ->
-            Triple(usage, accounts, active) to (now to settings.plan)
-        }.mapLatest { (state, clock) ->
-            val (usage, accounts, active) = state
-            val (now, plan) = clock
-            val viewed = accounts.firstOrNull { it.id == active }
-            WidgetData(usage, if (large) app.database.samples().since(active, startOfDayMs()) else emptyList(), now,
-                viewed?.takeIf { accounts.size > 1 }, viewed?.provider ?: Provider.CLAUDE, claudePlanName(plan))
-        }
-        val initial = data.first()
-        provideContent {
-            val current by data.collectAsState(initial)
-            Frame(context, click) { Content(context, current) }
-        }
+internal abstract class UsageWidget(val receiver: Class<out UsageWidgetReceiver>, val defaultSize: DpSize, private val large: Boolean = false) {
+    /** One page per account, the viewed account first; with a single account there is one page and nothing to switch. */
+    suspend fun pages(context: Context): List<WidgetData> {
+        val repo = (context.applicationContext as SessionSenseApp).repository
+        val db = (context.applicationContext as SessionSenseApp).database
+        val accounts = repo.accounts.first(); val active = repo.activeId(); val p = repo.preferences(); val now = System.currentTimeMillis()
+        suspend fun page(id: String, usage: UsageSnapshot, account: Account?, provider: Provider) = WidgetData(usage,
+            if (large) db.samples().since(id, startOfDayMs()) else emptyList(), now, account, provider, claudePlanName(p[AccountKeys(id).PLAN] ?: "pro"))
+        return if (accounts.isEmpty()) listOf(page(active, AccountKeys(active).usage(p), null, Provider.CLAUDE))
+        else accounts.sortedBy { it.account.id != active }.map { (a, u) -> page(a.id, u, a.takeIf { accounts.size > 1 }, a.provider) }
     }
 
     @Composable abstract fun ColumnScope.Content(context: Context, d: WidgetData)
 }
 
-private object SmallWidget : UsageWidget() {
+private object SmallWidget : UsageWidget(SessionSenseWidgetSmall::class.java, DpSize(110.dp, 110.dp)) {
     @Composable override fun ColumnScope.Content(context: Context, d: WidgetData) {
         val s = d.usage; val size = LocalSize.current; val ring = (min(size.width.value, size.height.value) * .44f).coerceIn(52f, 84f)
         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -133,14 +182,14 @@ private object SmallWidget : UsageWidget() {
     }
 }
 
-private object MediumWidget : UsageWidget() {
+private object MediumWidget : UsageWidget(SessionSenseWidgetMedium::class.java, DpSize(250.dp, 110.dp)) {
     @Composable override fun ColumnScope.Content(context: Context, d: WidgetData) {
         val size = LocalSize.current
         RingsWithLegend(context, d, (size.height.value - 32f).coerceIn(84f, 124f))
     }
 }
 
-private class LargeWidgetImpl : UsageWidget() {
+private object LargeWidget : UsageWidget(SessionSenseWidgetLarge::class.java, DpSize(250.dp, 250.dp), large = true) {
     @Composable override fun ColumnScope.Content(context: Context, d: WidgetData) {
         val size = LocalSize.current; val s = d.usage
         RingsWithLegend(context, d, (size.height.value - 196f).coerceIn(104f, 150f)) // fill the space above the chart
@@ -160,18 +209,46 @@ private class LargeWidgetImpl : UsageWidget() {
         }
     }
 }
-private val LargeWidget = LargeWidgetImpl()
 
-class SessionSenseWidgetSmall : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = SmallWidget }
-class SessionSenseWidgetMedium : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = MediumWidget }
-class SessionSenseWidgetLarge : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = LargeWidget }
+/** Renders on the launcher's own triggers (placement, the 30-minute update, a resize) and page-dot taps; the app pushes the rest. */
+abstract class UsageWidgetReceiver : AppWidgetProvider() {
+    internal abstract val widget: UsageWidget
+
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != SessionSenseWidgets.ACTION_NEXT_ACCOUNT) return super.onReceive(context, intent)
+        val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+        if (id != AppWidgetManager.INVALID_APPWIDGET_ID) async { SessionSenseWidgets.showNext(context, widget, id) }
+    }
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) = async { SessionSenseWidgets.render(context, widget, ids.toList()) }
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: Bundle) = async { SessionSenseWidgets.render(context, widget, listOf(id)) }
+    override fun onDeleted(context: Context, ids: IntArray) = SessionSenseWidgets.forget(context, ids)
+
+    private fun async(block: suspend () -> Unit) {
+        val pending = goAsync()
+        CoroutineScope(Dispatchers.Default).launch { try { block() } finally { pending.finish() } }
+    }
+}
+
+class SessionSenseWidgetSmall : UsageWidgetReceiver() { override val widget: UsageWidget get() = SmallWidget }
+class SessionSenseWidgetMedium : UsageWidgetReceiver() { override val widget: UsageWidget get() = MediumWidget }
+class SessionSenseWidgetLarge : UsageWidgetReceiver() { override val widget: UsageWidget get() = LargeWidget }
 
 // ─── Shared pieces ─────────────────────────────────────────────────────────────────────────────────────
 
-@Composable private fun Frame(context: Context, click: Action, content: @Composable ColumnScope.() -> Unit) {
-    Box(GlanceModifier.fillMaxSize().appWidgetBackground().cornerRadius(26.dp).background(WBg).clickable(click)) {
+/** The dark card every widget page sits on; [overlay] is drawn on top, centred on the right edge (the page dots). */
+@Composable private fun Frame(context: Context, overlay: @Composable () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+    Box(GlanceModifier.fillMaxSize().cornerRadius(26.dp).background(WBg), contentAlignment = Alignment.CenterEnd) {
         Image(ImageProvider(backdrop(context)), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
         Column(GlanceModifier.fillMaxSize().padding(16.dp), content = content)
+        overlay()
+    }
+}
+
+/** Which account the widget shows, one dot each; tapping them (see widget_frame.xml) switches to the next. */
+@Composable private fun PageDots(count: Int, current: Int) = Column(GlanceModifier.padding(end = 6.dp)) {
+    repeat(count) { i ->
+        if (i > 0) Spacer(GlanceModifier.height(4.dp))
+        Box(GlanceModifier.size(4.dp).cornerRadius(2.dp).background(if (i == current) Text else Faint.copy(alpha = .4f))) {}
     }
 }
 

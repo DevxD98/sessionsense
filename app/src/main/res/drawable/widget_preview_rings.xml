@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget picker preview: session, weekly and Opus rings. Generated sample values; the live widget draws its rings in SessionSenseWidgets.rings(). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="100dp" android:height="100dp" android:viewportWidth="100" android:viewportHeight="100">
+    <path android:pathData="M7.88,50 a42.12,42.12 0 1,1 84.25,0 a42.12,42.12 0 1,1 -84.25,0" android:strokeWidth="10.5" android:strokeColor="#336EE7D0" />
+    <path android:pathData="M21.32,50 a28.68,28.68 0 1,1 57.37,0 a28.68,28.68 0 1,1 -57.37,0" android:strokeWidth="10.5" android:strokeColor="#33AFCAFB" />
+    <path android:pathData="M34.76,50 a15.24,15.24 0 1,1 30.49,0 a15.24,15.24 0 1,1 -30.49,0" android:strokeWidth="10.5" android:strokeColor="#33F3D49E" />
+    <group android:rotation="-90" android:pivotX="50" android:pivotY="50">
+        <path android:pathData="M92.12,50 A42.12,42.12 0 0,1 13.09,70.29" android:strokeWidth="10.5" android:strokeLineCap="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient android:type="sweep" android:centerX="50" android:centerY="50">
+                    <item android:offset="0" android:color="#FF6EE7D0" />
+                    <item android:offset="0.46" android:color="#FF8FC5E5" />
+                    <item android:offset="1" android:color="#FF8FC5E5" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M7.84,70.29 a5.25,5.25 0 1,1 10.5,0 a5.25,5.25 0 1,1 -10.5,0" android:fillColor="#FF8FC5E5" />
+        <path android:pathData="M78.69,50 A28.68,28.68 0 1,1 30.36,29.09" android:strokeWidth="10.5" android:strokeLineCap="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient android:type="sweep" android:centerX="50" android:centerY="50">
+                    <item android:offset="0" android:color="#FFAFCAFB" />
+                    <item android:offset="0.67" android:color="#FF8BB4FF" />
+                    <item android:offset="1" android:color="#FF8BB4FF" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M25.11,29.09 a5.25,5.25 0 1,1 10.5,0 a5.25,5.25 0 1,1 -10.5,0" android:fillColor="#FF8BB4FF" />
+        <path android:pathData="M65.25,50 A15.24,15.24 0 0,1 56.49,63.79" android:strokeWidth="10.5" android:strokeLineCap="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient android:type="sweep" android:centerX="50" android:centerY="50">
+                    <item android:offset="0" android:color="#FFF3D49E" />
+                    <item android:offset="0.22" android:color="#FFF4C77A" />
+                    <item android:offset="1" android:color="#FFF4C77A" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M51.24,63.79 a5.25,5.25 0 1,1 10.5,0 a5.25,5.25 0 1,1 -10.5,0" android:fillColor="#FFF4C77A" />
+    </group>
+</vector>

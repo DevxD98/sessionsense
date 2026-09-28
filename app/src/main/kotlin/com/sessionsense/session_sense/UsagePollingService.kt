@@ -33,7 +33,8 @@ class UsagePollingService : Service() {
         scope.coroutineContext.cancelChildren()
         scope.launch {
             while (isActive) {
-                pollAll()
+                // An unexpected failure skips one poll; left uncaught it would crash the whole app.
+                try { pollAll() } catch (e: CancellationException) { throw e } catch (e: Exception) { Log.w(TAG, "Poll failed", e) }
                 delay(5_000)
             }
         }
@@ -270,8 +271,8 @@ class UsagePollingService : Service() {
             p[k.ACTIVE_RESET] = transition.state.resetMs
             if (recorded) p[k.LAST_SAMPLE] = sample.ts
         }
-        // Alerts, the live notification and widgets belong to the account the user is viewing only.
-        if (!active) return
+        // Alerts and the live notification belong to the account the user is viewing only; every account has a widget page.
+        if (!active) return SessionSenseWidgets.updateAll(this)
         notifications.onUsage(old, value, transition, k, label, account.provider)
         refreshActiveSurfaces(account, label)
     }
@@ -283,7 +284,9 @@ class UsagePollingService : Service() {
         val content = ongoingContent(snapshot, label, System.currentTimeMillis())
         if (content == shownOngoing) return
         shownOngoing = content
-        startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(content))
+        // The OS can refuse a foreground start (e.g. a background start on Android 12+); stop instead of crashing.
+        // MainActivity starts the service again whenever the app is opened.
+        try { startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(content)) } catch (e: Exception) { Log.w(TAG, "startForeground refused", e); stopSelf() }
     }
 
     private suspend fun refreshActiveSurfaces(account: Account, label: String?) {
