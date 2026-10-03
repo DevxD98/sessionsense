@@ -2,6 +2,7 @@ package com.sessionsense.session_sense
 
 import android.annotation.SuppressLint
 import android.webkit.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -9,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -21,9 +23,11 @@ internal const val WEB_USER_AGENT = "Mozilla/5.0 (Linux; Android 16) AppleWebKit
 private class AuthBridge(
     private val onResult: (String) -> Unit,
     private val onFailure: (String) -> Unit,
+    private val onSignedIn: () -> Unit,
 ) {
     @JavascriptInterface fun result(raw: String) = onResult(raw)
     @JavascriptInterface fun failed(message: String) = onFailure(message)
+    @JavascriptInterface fun signedIn() = onSignedIn()
 }
 
 /**
@@ -33,8 +37,12 @@ private class AuthBridge(
  */
 @Composable fun ClaudeAuth(onConnected: (AccountLogin) -> String?, onClose: () -> Unit, freshLogin: Boolean = false) = WebLogin(
     title = if (freshLogin) "Add a Claude account" else "Log into Claude",
-    hint = "Log into claude.ai above, then connect.",
+    hint = "Log into claude.ai above.",
     startUrl = "https://claude.ai/login", host = "claude.ai", freshLogin = freshLogin, onClose = onClose,
+    detect = """
+        fetch('/api/organizations', {credentials:'include'}).then(r => r.ok ? r.json() : null)
+          .then(d => { if (Array.isArray(d) && d.length) SessionSenseAuth.signedIn(); }).catch(() => {});
+    """.trimIndent(),
     script = """
         fetch('/api/organizations', {credentials:'include'})
           .then(r => { if (!r.ok) throw new Error('Not logged in (' + r.status + ').'); return r.json(); })
@@ -68,13 +76,17 @@ private class AuthBridge(
  * Shared sign-in scaffold: the provider's own site in a WebView, and a Connect button that runs [script] there.
  * The script reports back through `SessionSenseAuth.result(json)` / `SessionSenseAuth.failed(message)`;
  * [onPayload] runs on the main thread only while the WebView is still on [host], and returns an error to show or null.
+ * [detect] runs every few seconds while the WebView is on [host] and calls `SessionSenseAuth.signedIn()` once the login
+ * has gone through; that connects automatically, so the button is only a fallback for when detection can't tell.
  */
-@Composable internal fun WebLogin(title: String, hint: String, startUrl: String, host: String, freshLogin: Boolean, script: String,
+@Composable internal fun WebLogin(title: String, hint: String, startUrl: String, host: String, freshLogin: Boolean, detect: String, script: String,
                                   onClose: () -> Unit, note: String? = null, onPayload: (String) -> String?) {
     var webView by remember { mutableStateOf<WebView?>(null) }
     var loading by remember { mutableStateOf(true) }
     var working by remember { mutableStateOf(false) }
+    var signedIn by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    fun connect() { working = true; error = null; webView?.evaluateJavascript(script, null) }
 
     val bridge = remember { AuthBridge(onResult = { raw ->
         val view = webView ?: return@AuthBridge
@@ -84,22 +96,33 @@ private class AuthBridge(
                 onPayload(raw)?.let { message -> error = message; working = false }
             }.onFailure { error = it.message ?: "Could not connect to $host."; working = false }
         }
-    }, onFailure = { message -> webView?.post { error = message; working = false } }) }
+    }, onFailure = { message -> webView?.post { error = message; working = false } }, onSignedIn = {
+        // Once only: if the automatic connect fails, the error stays up and the button retries.
+        webView?.post { if (!signedIn) { signedIn = true; if (!working) connect() } }
+    }) }
+
+    LaunchedEffect(Unit) {
+        while (!signedIn) {
+            delay(2_500)
+            val view = webView ?: continue
+            if (!loading && !working && android.net.Uri.parse(view.url.orEmpty()).host == host) view.evaluateJavascript(detect, null)
+        }
+    }
 
     Scaffold(
         containerColor = Bg,
         topBar = { TopAppBar(title = { Text(title) }, navigationIcon = { TextButton(onClick = onClose) { Text("Close", color = Teal) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = Text)) },
         bottomBar = {
-            Column(Modifier.fillMaxWidth().padding(16.dp, 10.dp, 16.dp, 28.dp)) {
+            // Above the navigation bar (the app is edge-to-edge), and opaque so the page never shows through underneath.
+            Column(Modifier.fillMaxWidth().background(Bg).navigationBarsPadding().padding(16.dp, 10.dp, 16.dp, 12.dp)) {
                 error?.let { Text(it, color = Coral, style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(8.dp)) }
-                Text(hint, color = Muted, style = MaterialTheme.typography.bodySmall)
+                if (signedIn) Text("Signed in ✓", color = Teal, style = MaterialTheme.typography.bodySmall)
+                else Text("$hint SessionSense connects as soon as you're signed in.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 note?.let { Spacer(Modifier.height(4.dp)); Text(it, color = Amber, style = MaterialTheme.typography.bodySmall) }
                 Spacer(Modifier.height(10.dp))
-                CapsuleButton(if (working) "Connecting…" else "I've logged in — Connect →", onClick = {
-                    working = true; error = null
-                    webView?.evaluateJavascript(script, null)
-                }, enabled = !working, haptic = HapticFeedbackType.Confirm)
+                CapsuleButton(when { working -> "Connecting…"; signedIn -> "Connect →"; else -> "I've logged in — Connect →" }, onClick = ::connect,
+                    style = if (signedIn) CapsuleStyle.Primary else CapsuleStyle.Secondary, enabled = !working, haptic = HapticFeedbackType.Confirm)
             }
         },
     ) { padding ->

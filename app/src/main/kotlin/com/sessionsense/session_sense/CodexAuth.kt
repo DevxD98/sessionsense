@@ -13,8 +13,12 @@ import org.json.JSONTokener
  */
 @Composable fun CodexAuth(onConnected: (AccountLogin) -> String?, onClose: () -> Unit, freshLogin: Boolean = false) = WebLogin(
     title = if (freshLogin) "Add a ChatGPT account" else "Log into ChatGPT",
-    hint = "Log into chatgpt.com above with the account you use for Codex, then connect.",
+    hint = "Log into chatgpt.com above with the account you use for Codex.",
     startUrl = "https://chatgpt.com/auth/login", host = "chatgpt.com", freshLogin = freshLogin, onClose = onClose,
+    detect = """
+        fetch('/api/auth/session', {credentials: 'include'}).then(r => r.ok ? r.json() : null)
+          .then(s => { if (s && s.accessToken) SessionSenseAuth.signedIn(); }).catch(() => {});
+    """.trimIndent(),
     script = """
         (async () => {
           try {

@@ -3,6 +3,8 @@
     android:description="@string/widget_desc_small"
     android:minWidth="110dp"
     android:minHeight="110dp"
+    android:minResizeWidth="100dp"
+    android:minResizeHeight="100dp"
     android:targetCellWidth="2"
     android:targetCellHeight="2"
     android:updatePeriodMillis="1800000"

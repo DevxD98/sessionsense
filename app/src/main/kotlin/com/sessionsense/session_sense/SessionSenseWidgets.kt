@@ -65,9 +65,11 @@ object SessionSenseWidgets {
         val now = System.currentTimeMillis()
         val accounts = repo.accounts.first()
         // Every account's usage, not only the viewed one: a widget can be switched to any account.
-        val signature = (listOf(repo.activeId(), (s.sessionResetMs - now).coerceAtLeast(0) / 60_000, startOfDayMs()) + accounts.flatMap { (a, u) ->
+        // The countdown is part of it only in the steps the widgets show (see countdownMinutes): re-rendering every minute
+        // made the launcher re-inflate every widget's bitmaps that often, which shows up as lag swiping to their page.
+        val signature = (listOf(repo.activeId(), countdownMinutes(s.sessionResetMs - now), startOfDayMs()) + accounts.flatMap { (a, u) ->
             listOf(a.id, a.name, a.connected, u.sessionPct, u.weeklyPct, u.opusPct, u.sonnetPct, u.connection, u.sessionResetMs, u.weeklyResetMs, u.planType, u.sessionWindow, u.opusReported, u.sonnetReported,
-                (u.sessionResetMs - now).coerceAtLeast(0) / 60_000)
+                countdownMinutes(u.sessionResetMs - now))
         }).joinToString()
         if (!force && signature == lastSignature) return
         lastSignature = signature
@@ -157,7 +159,9 @@ internal abstract class UsageWidget(val receiver: Class<out UsageWidgetReceiver>
 
 private object SmallWidget : UsageWidget(SessionSenseWidgetSmall::class.java, DpSize(110.dp, 110.dp)) {
     @Composable override fun ColumnScope.Content(context: Context, d: WidgetData) {
-        val s = d.usage; val size = LocalSize.current; val ring = (min(size.width.value, size.height.value) * .44f).coerceIn(52f, 84f)
+        // Scale with the cell the launcher gives the widget, so a big cell isn't a small ring in a corner.
+        val s = d.usage; val size = LocalSize.current; val f = (min(size.width.value, size.height.value) / 110f).coerceIn(1f, 1.6f)
+        val ring = min(size.width.value * .5f, size.height.value - 32f - 52f * f).coerceIn(52f, 150f)
         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Box(GlanceModifier.size(ring.dp), contentAlignment = Alignment.Center) {
                 // With no 5-hour window reported (Codex, sometimes), the weekly window is all there is to show.
@@ -177,22 +181,25 @@ private object SmallWidget : UsageWidget(SessionSenseWidgetSmall::class.java, Dp
             } else StatusDot(s)
         }
         Spacer(GlanceModifier.defaultWeight())
-        Text(headline(s, d.now), style = style(WText, 26.sp, FontWeight.Bold), maxLines = 1)
-        Text(caption(s, d.now), style = style(ColorProvider(stateColor(s)), 11.sp, FontWeight.Medium), maxLines = 1)
+        Text(headline(s, d.now), style = style(WText, (26 * f).sp, FontWeight.Bold), maxLines = 1)
+        Text(caption(s, d.now), style = style(ColorProvider(stateColor(s)), (11 * f).sp, FontWeight.Medium), maxLines = 1)
     }
 }
 
 private object MediumWidget : UsageWidget(SessionSenseWidgetMedium::class.java, DpSize(250.dp, 110.dp)) {
     @Composable override fun ColumnScope.Content(context: Context, d: WidgetData) {
-        val size = LocalSize.current
-        RingsWithLegend(context, d, (size.height.value - 32f).coerceIn(84f, 124f))
+        val size = LocalSize.current; val f = (size.height.value / 110f).coerceIn(1f, 1.5f)
+        // Centred in the cell: a taller cell than 2 rows would otherwise leave an empty band under the rings.
+        Spacer(GlanceModifier.defaultWeight())
+        RingsWithLegend(context, d, min(size.height.value - 32f, size.width.value * .42f).coerceIn(84f, 180f), f)
+        Spacer(GlanceModifier.defaultWeight())
     }
 }
 
 private object LargeWidget : UsageWidget(SessionSenseWidgetLarge::class.java, DpSize(250.dp, 250.dp), large = true) {
     @Composable override fun ColumnScope.Content(context: Context, d: WidgetData) {
         val size = LocalSize.current; val s = d.usage
-        RingsWithLegend(context, d, (size.height.value - 196f).coerceIn(104f, 150f)) // fill the space above the chart
+        RingsWithLegend(context, d, min(size.height.value - 196f, size.width.value * .42f).coerceIn(104f, 180f)) // fill the space above the chart
         Spacer(GlanceModifier.defaultWeight())
         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Text("TODAY", modifier = GlanceModifier.defaultWeight(), style = style(WFaint, 11.sp, FontWeight.Bold))
@@ -252,7 +259,8 @@ class SessionSenseWidgetLarge : UsageWidgetReceiver() { override val widget: Usa
     }
 }
 
-@Composable private fun RingsWithLegend(context: Context, d: WidgetData, ring: Float) {
+/** [f] scales the legend text along with the ring. */
+@Composable private fun RingsWithLegend(context: Context, d: WidgetData, ring: Float, f: Float = 1f) {
     val s = d.usage
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         // Without a reported Opus limit the third ring is dropped and the plan takes the Opus row.
@@ -262,23 +270,23 @@ class SessionSenseWidgetLarge : UsageWidgetReceiver() { override val widget: Usa
         Spacer(GlanceModifier.width(16.dp))
         Column(GlanceModifier.defaultWeight()) {
             val session = if (d.account != null) "${d.provider.label} · ${d.account.name}" else "Session"
-            if (d.account != null) Row(verticalAlignment = Alignment.CenterVertically) { ProviderLogo(d.provider, 11); Spacer(GlanceModifier.width(4.dp)); Legend(session, null, null, stateColor(s)) }
-            if (s.sessionWindow) Legend(if (d.account != null) null else session, "${s.sessionPct}%", if (s.sessionPct > 0 && s.sessionResetMs > d.now) "${span(remaining(s, d.now))} left" else "ready", stateColor(s))
-            else Legend(if (d.account != null) null else session, "—", "no 5h window", Faint)
-            Spacer(GlanceModifier.height(6.dp))
-            Legend("Weekly", "${s.weeklyPct}%", if (s.weeklyResetMs > d.now) "resets ${clockOf(s.weeklyResetMs, "EEE")}" else null, Blue)
-            Spacer(GlanceModifier.height(6.dp))
-            if (d.opus) Legend("Opus", "${s.opusPct}%", null, Amber) else Legend("Plan", d.plan, null, Text)
+            if (d.account != null) Row(verticalAlignment = Alignment.CenterVertically) { ProviderLogo(d.provider, 11); Spacer(GlanceModifier.width(4.dp)); Legend(session, null, null, stateColor(s), f) }
+            if (s.sessionWindow) Legend(if (d.account != null) null else session, "${s.sessionPct}%", if (s.sessionPct > 0 && s.sessionResetMs > d.now) "${span(remaining(s, d.now))} left" else "ready", stateColor(s), f)
+            else Legend(if (d.account != null) null else session, "—", "no 5h window", Faint, f)
+            Spacer(GlanceModifier.height((6 * f).dp))
+            Legend("Weekly", "${s.weeklyPct}%", if (s.weeklyResetMs > d.now) "resets ${clockOf(s.weeklyResetMs, "EEE")}" else null, Blue, f)
+            Spacer(GlanceModifier.height((6 * f).dp))
+            if (d.opus) Legend("Opus", "${s.opusPct}%", null, Amber, f) else Legend("Plan", d.plan, null, Text, f)
         }
     }
 }
 
 /** A null [label] or [value] leaves that line out (the session label is drawn beside the provider logo instead). */
-@Composable private fun Legend(label: String?, value: String?, detail: String?, color: Color) {
-    if (label != null) Text(label.uppercase(), style = style(WMuted, 10.sp, FontWeight.Bold), maxLines = 1)
+@Composable private fun Legend(label: String?, value: String?, detail: String?, color: Color, f: Float = 1f) {
+    if (label != null) Text(label.uppercase(), style = style(WMuted, (10 * f).sp, FontWeight.Bold), maxLines = 1)
     if (value != null) Row(verticalAlignment = Alignment.Bottom) {
-        Text(value, style = style(ColorProvider(color), 19.sp, FontWeight.Bold))
-        if (detail != null) Text("  $detail", style = style(WMuted, 11.sp, FontWeight.Medium), maxLines = 1)
+        Text(value, style = style(ColorProvider(color), (19 * f).sp, FontWeight.Bold))
+        if (detail != null) Text("  $detail", style = style(WMuted, (11 * f).sp, FontWeight.Medium), maxLines = 1)
     }
 }
 
@@ -316,7 +324,10 @@ private fun weeklyRing(s: UsageSnapshot) = Ring(s.weeklyPct / 100f, lerp(Blue, T
 private fun planName(s: UsageSnapshot) = s.planType.trim().ifEmpty { "—" }.split('_', ' ').joinToString(" ") { it.replaceFirstChar(Char::uppercaseChar) }
 
 private fun remaining(s: UsageSnapshot, now: Long) = (s.sessionResetMs - now).coerceAtLeast(0)
-private fun span(ms: Long): String { val m = ms / 60_000; return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
+private fun span(ms: Long): String { val m = countdownMinutes(ms); return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
+
+/** Minutes left as widgets show them: in 5-minute steps (rounded down) until the last half hour, then every minute. */
+internal fun countdownMinutes(ms: Long): Long { val m = ms.coerceAtLeast(0) / 60_000; return if (m >= 30) m / 5 * 5 else m }
 private fun headline(s: UsageSnapshot, now: Long) = when {
     s.connection == "expired" -> "Reconnect"
     !s.sessionWindow -> "Weekly"
@@ -336,10 +347,16 @@ private fun clockOf(ms: Long, pattern: String) = Instant.ofEpochMilli((ms + 30_0
 
 private class Ring(val progress: Float, val start: Color, val end: Color)
 
+/**
+ * Widget bitmaps are parcelled to the launcher and decoded there on every update, so they're drawn at no more than 2.5x:
+ * sharp on any phone screen, at about two thirds the memory of 3x+ and without the scroll jank on the widget's page.
+ */
+private fun bitmapDensity(context: Context) = min(context.resources.displayMetrics.density, 2.5f)
+
 /** Concentric Fitness-style rings, outermost first: tinted track, sweep-gradient arc, glowing tip. */
 private fun rings(context: Context, sizeDp: Float, rings: List<Ring>, stroke: Float, gap: Float = stroke * .28f): Bitmap {
-    val d = context.resources.displayMetrics.density
-    val px = (sizeDp * d).roundToInt().coerceIn(16, 720)
+    val d = bitmapDensity(context)
+    val px = (sizeDp * d).roundToInt().coerceIn(16, 450)
     val bmp = createBitmap(px, px); val c = android.graphics.Canvas(bmp)
     val w = stroke * d; val cx = px / 2f; val margin = w * .25f
     rings.forEachIndexed { i, ring ->
@@ -363,8 +380,8 @@ private fun rings(context: Context, sizeDp: Float, rings: List<Ring>, stroke: Fl
 
 /** Today's 5-hour session % on a fixed 24h axis, as a step curve with a gradient fill. */
 private fun todayCurve(context: Context, widthDp: Float, heightDp: Float, samples: List<UsageSample>, now: Long): Bitmap {
-    val d = context.resources.displayMetrics.density
-    val w = (widthDp * d).roundToInt().coerceIn(32, 1000); val h = (heightDp * d).roundToInt().coerceIn(16, 300)
+    val d = bitmapDensity(context)
+    val w = (widthDp * d).roundToInt().coerceIn(32, 900); val h = (heightDp * d).roundToInt().coerceIn(16, 240)
     val bmp = createBitmap(w, h); val c = android.graphics.Canvas(bmp)
     val grid = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.White.copy(alpha = .07f).toArgb(); strokeWidth = d }
     listOf(.5f, 1f).forEach { f -> val y = (h - d) * f; c.drawLine(0f, y, w.toFloat(), y, grid) }

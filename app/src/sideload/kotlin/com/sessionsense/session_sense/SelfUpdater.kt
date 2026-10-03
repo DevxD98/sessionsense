@@ -166,7 +166,7 @@ class SelfUpdater private constructor(private val app: SessionSenseApp) : Update
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val summary = m.notes.lineSequence().map { it.trim().trimStart('-', '*', '•', ' ') }.firstOrNull { it.isNotEmpty() && !it.startsWith("#") }
         manager.notify(NOTIFICATION_ID, Notification.Builder(app, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done).setColor(Color.rgb(110, 231, 208))
+            .setSmallIcon(R.drawable.ic_stat_sessionsense).setColor(Color.rgb(110, 231, 208))
             .setContentTitle(if (status is UpdateStatus.Required) "Update required" else "SessionSense ${m.versionName} is available")
             .setContentText(summary ?: "Tap to see what’s new.")
             .setContentIntent(open).setAutoCancel(true)
