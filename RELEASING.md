@@ -1,13 +1,13 @@
 # Releasing SessionSense
 
 SessionSense is installed from an APK, not the Play Store. Each release is published to the public repo
-[DevxD98/sessionsense-releases](https://github.com/DevxD98/sessionsense-releases), and the app updates itself from there.
+[DevxD98/sessionsense](https://github.com/DevxD98/sessionsense), and the app updates itself from there.
 There is no server: the app reads the latest release's `update.json` from GitHub.
 
 ## How the in-app updater works
 
 - Each release carries two assets: `sessionsense-X.Y.Z.apk` and `update.json`. The app reads
-  `https://github.com/DevxD98/sessionsense-releases/releases/latest/download/update.json`, and that URL always
+  `https://github.com/DevxD98/sessionsense/releases/latest/download/update.json`, and that URL always
   points at the newest non-prerelease.
 - The app checks when it starts (at most once every 6 hours) and in a daily background job. Both can be turned off
   under Settings → About → Check automatically. Each new version gets one notification on the "App updates"
@@ -70,7 +70,7 @@ Android can't install a lower versionCode over a higher one, so a bad release ca
 2. Release it under a **higher** version: `scripts/release.sh 1.5.1 --notes "- Reverts 1.5.0"`.
 
 To stop people installing a bad release before the fix is ready, delete `update.json` from that release, or the
-whole release (`gh release delete vX.Y.Z --repo DevxD98/sessionsense-releases`). The latest URL then points at
+whole release (`gh release delete vX.Y.Z --repo DevxD98/sessionsense`). The latest URL then points at
 the previous release, which installed apps already have, so nothing more is offered.
 
 ## The keystore: back it up
@@ -110,10 +110,10 @@ Debug builds can read `update.json` from any release on the releases repo, inclu
 `releases/latest` ignores. That lets you test the whole flow without offering anything to real installs:
 
 ```sh
-gh release create test-1 --prerelease --repo DevxD98/sessionsense-releases <apk> update.json
+gh release create test-1 --prerelease --repo DevxD98/sessionsense <apk> update.json
 adb shell am broadcast -n com.sessionsense.session_sense/.UpdateDebugReceiver \
   -a com.sessionsense.DEBUG_UPDATE_MANIFEST \
-  --es url https://github.com/DevxD98/sessionsense-releases/releases/download/test-1/update.json
+  --es url https://github.com/DevxD98/sessionsense/releases/download/test-1/update.json
 # and back to the real latest release:
 adb shell am broadcast -n com.sessionsense.session_sense/.UpdateDebugReceiver -a com.sessionsense.DEBUG_UPDATE_MANIFEST
 ```

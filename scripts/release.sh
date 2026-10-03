@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cut a SessionSense release: bump the version, test, lint, build the signed sideload APK, write update.json and
-# publish both to GitHub Releases on DevxD98/sessionsense-releases. Nothing is published without typing the version.
+# publish both to GitHub Releases on DevxD98/sessionsense. Nothing is published without typing the version.
 #
 #   scripts/release.sh <patch|minor|major|X.Y.Z> [--notes "text" | --notes-file FILE] [--min-supported X.Y.Z] [--dry-run]
 #
@@ -12,9 +12,9 @@
 # See RELEASING.md.
 set -euo pipefail
 
-REPO="DevxD98/sessionsense-releases"
+REPO="DevxD98/sessionsense"
 LATEST_MANIFEST="https://github.com/$REPO/releases/latest/download/update.json"
-cd "$(dirname "$0")/.."   # session_sense/android
+cd "$(dirname "$0")/.."   # the Gradle project root
 
 die() { echo "error: $*" >&2; exit 1; }
 prop() { sed -n "s/^$1=//p" version.properties; }

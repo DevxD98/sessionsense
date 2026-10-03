@@ -44,7 +44,7 @@ android {
         sideload {
             dimension "distribution"
             isDefault true
-            buildConfigField "String", "UPDATE_MANIFEST_URL", '"https://github.com/DevxD98/sessionsense-releases/releases/latest/download/update.json"'
+            buildConfigField "String", "UPDATE_MANIFEST_URL", '"https://github.com/DevxD98/sessionsense/releases/latest/download/update.json"'
         }
         play { dimension "distribution" }
     }
