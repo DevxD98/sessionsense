@@ -10,6 +10,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,15 +22,23 @@ import org.json.JSONObject
  */
 internal const val WEB_USER_AGENT = "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36"
 
-private class AuthBridge(
-    private val onResult: (String) -> Unit,
-    private val onFailure: (String) -> Unit,
-    private val onSignedIn: () -> Unit,
-) {
-    @JavascriptInterface fun result(raw: String) = onResult(raw)
-    @JavascriptInterface fun failed(message: String) = onFailure(message)
-    @JavascriptInterface fun signedIn() = onSignedIn()
+/**
+ * Fallback channel for WebViews without WEB_MESSAGE_LISTENER. Unlike the listener it is visible to every page and
+ * frame, so [WebLogin] only acts on its messages while the WebView is on the provider's host.
+ */
+private class AuthBridge(private val onMessage: (String) -> Unit) {
+    @JavascriptInterface fun postMessage(message: String) = onMessage(message)
 }
+
+private const val BRIDGE = "SessionSenseAuth"
+
+/** Runs [js] with `send(type, value)`, which posts `{t, v}` to the app over [BRIDGE]. */
+private fun withBridge(js: String) = """
+    (function () {
+      function send(t, v) { $BRIDGE.postMessage(JSON.stringify({t: t, v: v === undefined ? '' : String(v)})); }
+    $js
+    })();
+""".trimIndent()
 
 /**
  * claude.ai login in a WebView. [freshLogin] clears the WebView's cookies first so a different account can sign in;
@@ -41,15 +51,15 @@ private class AuthBridge(
     startUrl = "https://claude.ai/login", host = "claude.ai", freshLogin = freshLogin, onClose = onClose,
     detect = """
         fetch('/api/organizations', {credentials:'include'}).then(r => r.ok ? r.json() : null)
-          .then(d => { if (Array.isArray(d) && d.length) SessionSenseAuth.signedIn(); }).catch(() => {});
+          .then(d => { if (Array.isArray(d) && d.length) send('signedIn'); }).catch(() => {});
     """.trimIndent(),
     script = """
         fetch('/api/organizations', {credentials:'include'})
           .then(r => { if (!r.ok) throw new Error('Not logged in (' + r.status + ').'); return r.json(); })
           .then(d => fetch('/api/account', {credentials:'include'})
             .then(r => r.ok ? r.json() : null).catch(() => null)
-            .then(a => SessionSenseAuth.result(JSON.stringify({orgs: Array.isArray(d) ? d : [], account: a}))))
-          .catch(e => SessionSenseAuth.failed(e.toString()));
+            .then(a => send('result', JSON.stringify({orgs: Array.isArray(d) ? d : [], account: a}))))
+          .catch(e => send('failed', e.toString()));
     """.trimIndent(),
 ) { raw ->
     val payload = JSONObject(raw)
@@ -70,14 +80,17 @@ private class AuthBridge(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-// Lint misses annotations on this Kotlin bridge; javap confirms both methods carry RuntimeVisible @JavascriptInterface.
+// Lint misses annotations on this Kotlin bridge; javap confirms postMessage carries RuntimeVisible @JavascriptInterface.
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 /**
  * Shared sign-in scaffold: the provider's own site in a WebView, and a Connect button that runs [script] there.
- * The script reports back through `SessionSenseAuth.result(json)` / `SessionSenseAuth.failed(message)`;
- * [onPayload] runs on the main thread only while the WebView is still on [host], and returns an error to show or null.
- * [detect] runs every few seconds while the WebView is on [host] and calls `SessionSenseAuth.signedIn()` once the login
- * has gone through; that connects automatically, so the button is only a fallback for when detection can't tell.
+ * The script reports back with `send('result', json)` / `send('failed', message)`; [onPayload] runs on the main thread
+ * only while the WebView is still on [host], and returns an error to show or null.
+ * [detect] runs every few seconds while the WebView is on [host] and calls `send('signedIn')` once the login has gone
+ * through; that connects automatically, so the button is only a fallback for when detection can't tell.
+ *
+ * Messages are only accepted from the main frame of https://[host]: the login also loads Google and Apple sign-in pages
+ * and third-party frames, and none of them may drive the connect.
  */
 @Composable internal fun WebLogin(title: String, hint: String, startUrl: String, host: String, freshLogin: Boolean, detect: String, script: String,
                                   onClose: () -> Unit, note: String? = null, onPayload: (String) -> String?) {
@@ -86,26 +99,28 @@ private class AuthBridge(
     var working by remember { mutableStateOf(false) }
     var signedIn by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    fun connect() { working = true; error = null; webView?.evaluateJavascript(script, null) }
+    fun connect() { working = true; error = null; webView?.evaluateJavascript(withBridge(script), null) }
 
-    val bridge = remember { AuthBridge(onResult = { raw ->
-        val view = webView ?: return@AuthBridge
-        view.post {
-            runCatching {
-                require(android.net.Uri.parse(view.url).host == host) { "Return to $host before connecting." }
-                onPayload(raw)?.let { message -> error = message; working = false }
-            }.onFailure { error = it.message ?: "Could not connect to $host."; working = false }
+    /** A message from the page, on the main thread. Ignored unless the WebView is on [host]. */
+    fun receive(message: String) {
+        val view = webView ?: return
+        if (android.net.Uri.parse(view.url.orEmpty()).host != host) return
+        val m = runCatching { JSONObject(message) }.getOrNull() ?: return
+        val value = m.optString("v")
+        when (m.optString("t")) {
+            "result" -> runCatching { onPayload(value)?.let { error = it; working = false } }
+                .onFailure { error = it.message ?: "Could not connect to $host."; working = false }
+            "failed" -> { error = value; working = false }
+            // Once only: if the automatic connect fails, the error stays up and the button retries.
+            "signedIn" -> if (!signedIn) { signedIn = true; if (!working) connect() }
         }
-    }, onFailure = { message -> webView?.post { error = message; working = false } }, onSignedIn = {
-        // Once only: if the automatic connect fails, the error stays up and the button retries.
-        webView?.post { if (!signedIn) { signedIn = true; if (!working) connect() } }
-    }) }
+    }
 
     LaunchedEffect(Unit) {
         while (!signedIn) {
             delay(2_500)
             val view = webView ?: continue
-            if (!loading && !working && android.net.Uri.parse(view.url.orEmpty()).host == host) view.evaluateJavascript(detect, null)
+            if (!loading && !working && android.net.Uri.parse(view.url.orEmpty()).host == host) view.evaluateJavascript(withBridge(detect), null)
         }
     }
 
@@ -133,7 +148,12 @@ private class AuthBridge(
                     settings.javaScriptEnabled = true; settings.domStorageEnabled = true
                     settings.userAgentString = WEB_USER_AGENT
                     CookieManager.getInstance().setAcceptCookie(true)
-                    addJavascriptInterface(bridge, "SessionSenseAuth")
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                        // Injected into https://host frames only; the main-frame check keeps out frames that host embeds.
+                        WebViewCompat.addWebMessageListener(this, BRIDGE, setOf("https://$host")) { _, message, origin, isMainFrame, _ ->
+                            if (isMainFrame && origin.host == host) message.data?.let(::receive)
+                        }
+                    } else addJavascriptInterface(AuthBridge { message -> post { receive(message) } }, BRIDGE)
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) { loading = true }
                         override fun onPageFinished(view: WebView?, url: String?) { loading = false }
@@ -145,5 +165,5 @@ private class AuthBridge(
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
     }
-    DisposableEffect(Unit) { onDispose { webView?.removeJavascriptInterface("SessionSenseAuth"); webView?.destroy() } }
+    DisposableEffect(Unit) { onDispose { webView?.destroy() } }
 }

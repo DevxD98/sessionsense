@@ -17,7 +17,7 @@ import org.json.JSONTokener
     startUrl = "https://chatgpt.com/auth/login", host = "chatgpt.com", freshLogin = freshLogin, onClose = onClose,
     detect = """
         fetch('/api/auth/session', {credentials: 'include'}).then(r => r.ok ? r.json() : null)
-          .then(s => { if (s && s.accessToken) SessionSenseAuth.signedIn(); }).catch(() => {});
+          .then(s => { if (s && s.accessToken) send('signedIn'); }).catch(() => {});
     """.trimIndent(),
     script = """
         (async () => {
@@ -35,8 +35,8 @@ import org.json.JSONTokener
             const headers = {Authorization: 'Bearer ' + s.accessToken, Accept: 'application/json'};
             if (id) headers['ChatGPT-Account-Id'] = id;
             const u = await fetch('/backend-api/wham/usage', {headers, credentials: 'include'});
-            SessionSenseAuth.result(JSON.stringify({session: text, usageStatus: u.status, usage: await u.text()}));
-          } catch (e) { SessionSenseAuth.failed(e.message || String(e)); }
+            send('result', JSON.stringify({session: text, usageStatus: u.status, usage: await u.text()}));
+          } catch (e) { send('failed', e.message || String(e)); }
         })();
     """.trimIndent(),
 ) { raw ->
