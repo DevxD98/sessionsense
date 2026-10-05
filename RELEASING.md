@@ -59,6 +59,10 @@ stops you from publishing an APK that can't install as an update. Debug builds a
    git add version.properties && git commit -m "release: vX.Y.Z" && git tag vX.Y.Z
    ```
 
+App-store metadata (used by IzzyOnDroid, F-Droid and similar catalogs) lives in `fastlane/metadata/android/en-US/`.
+With each release, add `changelogs/<versionCode>.txt` (plain text, at most 500 characters), and refresh the
+screenshots or descriptions when the app changes noticeably.
+
 Without `--min-supported`, the new release keeps the `minSupportedVersionCode` of the currently published one.
 
 ## Rolling back

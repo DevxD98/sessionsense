@@ -57,6 +57,11 @@ They follow the account you're viewing and refresh as usage changes.
 
 That's it. Add a widget from your home screen's widget picker if you like.
 
+Prefer an app manager? Add the repo to [Obtainium](https://github.com/ImranR98/Obtainium) and it installs and updates
+SessionSense straight from these releases:
+
+<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/DevxD98/sessionsense"><img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" height="54" alt="Get it on Obtainium"></a>
+
 ## Updates
 
 You only install SessionSense once. After that it **updates from inside the app**:

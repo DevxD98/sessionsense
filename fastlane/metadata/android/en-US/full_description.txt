@@ -1,0 +1,15 @@
+<p>SessionSense tracks your <b>Claude</b> and <b>Codex</b> usage limits in real time, so you know where you stand before you hit a wall.</p>
+
+<ul>
+<li><b>Live 5-hour session:</b> how much of the current window you've used and exactly when it resets, as a ring.</li>
+<li><b>Weekly quotas:</b> weekly usage plus per-model Opus and Sonnet allowances, with a pace insight.</li>
+<li><b>Planner:</b> see when this window would hit its limit at your pace, get notified when a reset lands, and keep part of your weekly limit in reserve.</li>
+<li><b>Alerts:</b> at 60, 30 and 10 minutes left, on reset, and when weekly quota gets tight. Quiet hours keep them silent.</li>
+<li><b>History:</b> today's usage curve, 7-day peaks and past sessions, stored on your phone.</li>
+<li><b>Home-screen widgets:</b> Session ring, Activity rings and Today.</li>
+<li><b>Up to 3 accounts:</b> Claude (Pro, Team, Max, which also covers Claude Code) and Codex on a ChatGPT plan.</li>
+</ul>
+
+<p><b>Private by design.</b> You sign in on claude.ai or chatgpt.com in an in-app browser; SessionSense never sees your password. Only the session needed to read your usage is kept, encrypted with the Android Keystore. There are no servers and no analytics.</p>
+
+<p>SessionSense is an independent open-source project (MIT) and isn't affiliated with Anthropic or OpenAI. It reads usage from the same web endpoints the official sites use, so it needs a Claude or ChatGPT account.</p>

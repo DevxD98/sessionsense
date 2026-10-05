@@ -1,0 +1,11 @@
+New
+- Runway: when you'll hit your 5-hour limit at your current pace
+- Notify me when ready: a ping when your session or weekly limit resets
+- Weekly reserve: keep 10, 20 or 30% of your weekly limit back
+- Glyph switch (Nothing phones): stop the live notification lighting the Glyph
+
+Fixed
+- Glyph no longer flashes on every usage update
+- Widgets fill and resize properly, and scroll without lag
+- Sign-in is detected automatically
+- Notifications use the SessionSense icon
