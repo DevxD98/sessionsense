@@ -159,13 +159,17 @@ class AccountKeys(val accountId: String) {
     val SONNET_REPORTED = booleanPreferencesKey("${prefix}sonnet_reported")
     /** Parsed [CodexAnalytics] (JSON), refreshed every 30 minutes for Codex accounts. */
     val CODEX_ANALYTICS = stringPreferencesKey("${prefix}codex_analytics")
+    /** "Notify me when ready": the session / weekly reset time the user asked to hear about. See [resetNotifyDue]. */
+    val NOTIFY_SESSION_RESET = longPreferencesKey("${prefix}notify_session_reset")
+    val NOTIFY_WEEKLY_RESET = longPreferencesKey("${prefix}notify_weekly_reset")
 
     fun usage(p: Preferences) = UsageSnapshot(p[SESSION] ?: 0, p[WEEKLY] ?: 0, p[OPUS] ?: 0, p[SONNET] ?: 0,
         p[SESSION_RESET] ?: 0, p[WEEKLY_RESET] ?: 0, p[UPDATED] ?: 0, p[CONNECTION] ?: "idle", p[PLAN_TYPE] ?: "", p[SESSION_WINDOW] ?: true,
         p[OPUS_REPORTED] ?: false, p[SONNET_REPORTED] ?: false)
 
     fun clear(p: MutablePreferences) = listOf(PLAN, SESSION, WEEKLY, OPUS, SONNET, SESSION_RESET, WEEKLY_RESET, UPDATED, CONNECTION,
-        PREV_SESSION, ACTIVE_START, ACTIVE_PEAK, ACTIVE_RESET, LAST_SAMPLE, ALERT_FLAGS, PLAN_TYPE, SESSION_WINDOW, OPUS_REPORTED, SONNET_REPORTED, CODEX_ANALYTICS).forEach { p.remove(it) }
+        PREV_SESSION, ACTIVE_START, ACTIVE_PEAK, ACTIVE_RESET, LAST_SAMPLE, ALERT_FLAGS, PLAN_TYPE, SESSION_WINDOW, OPUS_REPORTED, SONNET_REPORTED, CODEX_ANALYTICS,
+        NOTIFY_SESSION_RESET, NOTIFY_WEEKLY_RESET).forEach { p.remove(it) }
 }
 
 data class AccountOverview(val account: Account, val usage: UsageSnapshot)
@@ -187,6 +191,8 @@ class SessionRepository(private val context: Context, private val db: SessionDat
     }
     val sessions = activeAccountId.flatMapLatest { db.sessions().observeAll(it) }
     val codexAnalytics = combine(context.dataStore.data, activeAccountId) { p, id -> p[AccountKeys(id).CODEX_ANALYTICS]?.let(CodexAnalytics::fromJson) }.distinctUntilChanged()
+    /** The viewed account's reset requests: (session, weekly) reset times, 0 when none. */
+    val resetRequests = combine(context.dataStore.data, activeAccountId) { p, id -> AccountKeys(id).let { (p[it.NOTIFY_SESSION_RESET] ?: 0L) to (p[it.NOTIFY_WEEKLY_RESET] ?: 0L) } }.distinctUntilChanged()
     fun samplesSince(since: Long) = activeAccountId.flatMapLatest { db.samples().observeSince(it, since) }
 
     suspend fun activeId() = activeAccountId.first()
@@ -196,6 +202,11 @@ class SessionRepository(private val context: Context, private val db: SessionDat
     suspend fun setActive(id: String) = context.dataStore.edit { it[Keys.ACTIVE_ACCOUNT] = id }
     suspend fun setPlan(value: String) { val id = activeId(); context.dataStore.edit { it[AccountKeys(id).PLAN] = value } }
     suspend fun setBoolean(key: Preferences.Key<Boolean>, value: Boolean) = context.dataStore.edit { it[key] = value }
+    /** Asks for (or, with null, cancels) a ping when the viewed account's session or weekly window resets. */
+    suspend fun setResetRequest(weekly: Boolean, resetMs: Long?) {
+        val k = AccountKeys(activeId()); val key = if (weekly) k.NOTIFY_WEEKLY_RESET else k.NOTIFY_SESSION_RESET
+        context.dataStore.edit { if (resetMs != null) it[key] = resetMs else it.remove(key) }
+    }
     suspend fun setQuietHours(start: Int, end: Int) = context.dataStore.edit { it[Keys.QUIET_START] = start; it[Keys.QUIET_END] = end }
 
     /** Drops everything stored for an account; with no accounts left the app returns to onboarding. */

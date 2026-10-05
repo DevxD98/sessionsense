@@ -287,8 +287,9 @@ class UsagePollingService : Service() {
             if (recorded) p[k.LAST_SAMPLE] = sample.ts
         }
         // Alerts and the live notification belong to the account the user is viewing only; every account has a widget page.
+        // A reset the user asked to hear about is the exception: it's announced whichever account is being viewed.
+        if (active || old[k.NOTIFY_SESSION_RESET] != null || old[k.NOTIFY_WEEKLY_RESET] != null) notifications.onUsage(old, value, transition, k, label, account.provider, active)
         if (!active) return SessionSenseWidgets.updateAll(this)
-        notifications.onUsage(old, value, transition, k, label, account.provider)
         refreshActiveSurfaces(account, label)
     }
 
@@ -428,8 +429,11 @@ class NotificationCenter(private val context: Context) {
         return builder.build()
     }
 
-    /** [account] prefixes alert titles (see UsagePollingService.label); [provider] names the window in alert bodies. */
-    suspend fun onUsage(old: Preferences, s: UsageSnapshot, transition: TrackingResult, k: AccountKeys, account: String?, provider: Provider = Provider.CLAUDE) {
+    /**
+     * [account] prefixes alert titles (see UsagePollingService.label); [provider] names the window in alert bodies.
+     * For a background account (not [active]) only reset requests are handled.
+     */
+    suspend fun onUsage(old: Preferences, s: UsageSnapshot, transition: TrackingResult, k: AccountKeys, account: String?, provider: Provider = Provider.CLAUDE, active: Boolean = true) {
         val settings = app.repository.settings.first()
         val flags = (old[k.ALERT_FLAGS] ?: emptySet()).toMutableSet()
         fun once(key: String, critical: Boolean = false, block: () -> Unit) {
@@ -437,13 +441,32 @@ class NotificationCenter(private val context: Context) {
         }
         // With several accounts, name the one an alert is about.
         fun alert(id: Int, title: String, body: String, low: Boolean = false) = this@NotificationCenter.alert(id, if (account != null) "$account · $title" else title, body, low)
-        if (transition.started && settings.sessionAlerts) once("start:${s.sessionResetMs}") {
+        val sessionFlag = old[k.NOTIFY_SESSION_RESET]; val weeklyFlag = old[k.NOTIFY_WEEKLY_RESET]
+        suspend fun save(sessionRequest: ResetRequest, weeklyRequest: ResetRequest) = context.dataStore.edit {
+            it[k.ALERT_FLAGS] = retainAlertFlags(flags, s.sessionResetMs, s.weeklyResetMs)
+            // A request that fired or went stale is cleared, unless the user set a new one meanwhile.
+            if (sessionRequest != ResetRequest.NONE && it[k.NOTIFY_SESSION_RESET] == sessionFlag) it.remove(k.NOTIFY_SESSION_RESET)
+            if (weeklyRequest != ResetRequest.NONE && it[k.NOTIFY_WEEKLY_RESET] == weeklyFlag) it.remove(k.NOTIFY_WEEKLY_RESET)
+        }
+        // "Notify me when ready" from Home's reset planner. The user asked for it, so it ignores the alert switches and
+        // quiet hours. A reset is caught on the next poll (about 5 s) while the service runs; if the service was stopped,
+        // RecoveryWorker restarts it within 15 minutes, so the ping can be that late. There's no exact alarm in v1.1.
+        val sessionRequest = resetNotifyDue(sessionFlag, old[k.SESSION_RESET] ?: 0, s.sessionResetMs, transition.ended != null)
+        val oldWeeklyReset = old[k.WEEKLY_RESET] ?: 0
+        val weeklyRequest = resetNotifyDue(weeklyFlag, oldWeeklyReset, s.weeklyResetMs, weeklyEnded(oldWeeklyReset, s.weeklyResetMs, old[k.WEEKLY] ?: 0, s.weeklyPct))
+        val asked = sessionRequest == ResetRequest.FIRE
+        if (transition.started && active && settings.sessionAlerts) once("start:${s.sessionResetMs}") {
             alert(101, "New 5-hour session started", "Resets at ${formatTime(s.sessionResetMs)}")
         }
-        // On a rollover a new window is already running, so "full session available" would be wrong.
-        if (transition.ended != null && !transition.started && settings.sessionAlerts) once(resetAlertKey(s.sessionResetMs)) {
+        // On a rollover a new window is already running, so "full session available" would be wrong. A requested ping
+        // shares the alert's id and once-key, so one reset never alerts twice.
+        if (transition.ended != null && !transition.started && ((active && settings.sessionAlerts) || asked)) once(resetAlertKey(s.sessionResetMs), critical = asked) {
             alert(102, "Full session available", "Your 5-hour ${provider.label} window has reset.")
         }
+        if (weeklyRequest == ResetRequest.FIRE) once("weekly-ready:$oldWeeklyReset", critical = true) {
+            alert(205, "Weekly limit reset", "Your weekly ${provider.label} limit is available again.")
+        }
+        if (!active) { save(sessionRequest, weeklyRequest); return }
         val remaining = s.sessionResetMs - System.currentTimeMillis()
         if (s.sessionPct > 0 && settings.sessionAlerts) {
             listOf(60 to 103, 30 to 104, 10 to 105).forEach { (minutes, id) ->
@@ -470,7 +493,7 @@ class NotificationCenter(private val context: Context) {
         if (settings.weeklyAlerts && s.weeklyPct >= 80 && weeklyRemaining in 1..6 * 60 * 60 * 1000L) once("weekly-reset:${s.weeklyResetMs}") {
             alert(204, "Weekly quota resets soon", "${s.weeklyPct}% used · resets in ${formatDuration(weeklyRemaining)}")
         }
-        context.dataStore.edit { it[k.ALERT_FLAGS] = retainAlertFlags(flags, s.sessionResetMs, s.weeklyResetMs) }
+        save(sessionRequest, weeklyRequest)
     }
 
     suspend fun maybeSendWeeklyDigest(dao: SessionDao) {

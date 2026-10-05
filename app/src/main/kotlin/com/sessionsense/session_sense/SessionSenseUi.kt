@@ -565,6 +565,7 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
         }
         Spacer(Modifier.height(S2)); Text(s.insight.basis, color = Muted, fontSize = 13.sp)
     }
+    if (s.usage.connection != "expired") { Spacer(Modifier.height(S2)); ResetPlannerCard(vm, s) }
     Spacer(Modifier.height(S4)); SectionLabel("TODAY")
     val live = s.activeWindowStartMs > 0
     if (!live && s.todaySessions.isEmpty()) Card {
@@ -590,6 +591,37 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
             }
         }
         Spacer(Modifier.height(S2)); Text(r.basis, color = Muted, fontSize = 13.sp)
+    }
+}
+
+/** "When can I use it again?": the next session and weekly resets, each with a one-off ping. */
+@Composable private fun ResetPlannerCard(vm: AppViewModel, s: AppUiState) = Card {
+    val live = s.usage.sessionWindow && s.usage.sessionPct > 0 && s.usage.sessionResetMs > s.now
+    val weekly = s.usage.weeklyResetMs > s.now
+    Label("RESETS", color = Blue); Spacer(Modifier.height(S1))
+    if (s.usage.sessionWindow) {
+        if (live) Text("Resets in ${formatSpan(s.remainingMs)} · ${clock(s.usage.sessionResetMs, "h:mm a")}", color = Text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        else Text("Full 5-hour session available", color = Text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        if (live) { Spacer(Modifier.height(S1)); NotifyChip(s.sessionResetRequested, clock(s.usage.sessionResetMs, "h:mm a")) { vm.notifyReset(false, s.usage.sessionResetMs.takeIf { _ -> !s.sessionResetRequested }) } }
+    }
+    if (weekly) {
+        if (s.usage.sessionWindow) Spacer(Modifier.height(S3))
+        Text("Weekly resets ${clock(s.usage.weeklyResetMs, "EEE h:mm a")}", color = Text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(S1)); NotifyChip(s.weeklyResetRequested, clock(s.usage.weeklyResetMs, "EEE h:mm a")) { vm.notifyReset(true, s.usage.weeklyResetMs.takeIf { _ -> !s.weeklyResetRequested }) }
+    }
+}
+
+/** A bell that becomes a tick once a ping is set; tapping again cancels it. */
+@Composable private fun NotifyChip(on: Boolean, at: String, toggle: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    val color = if (on) Teal else Muted
+    Pressable({ haptics.performHapticFeedback(if (on) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn); toggle() },
+        Modifier.clip(CircleShape).background(color.copy(alpha = .10f)).border(1.dp, color.copy(alpha = .3f), CircleShape).heightIn(min = 40.dp), role = Role.Switch) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Glyph(if (on) GlyphKind.Check else GlyphKind.Bell, color, Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(if (on) "We’ll notify you at $at" else "Notify me when ready", color = if (on) Teal else Text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
     }
 }
 

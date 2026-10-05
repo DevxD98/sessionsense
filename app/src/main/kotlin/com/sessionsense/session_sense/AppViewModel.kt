@@ -20,12 +20,17 @@ data class AppUiState(
     val activeAccountId: String = DEFAULT_ACCOUNT,
     /** Codex accounts only: last 7 days by model, surface and message count. */
     val codexAnalytics: CodexAnalytics? = null,
+    /** Reset times the viewed account asked to be pinged about (0: none). A value for another window is stale. */
+    val notifySessionReset: Long = 0,
+    val notifyWeeklyReset: Long = 0,
 ) {
     val activeAccount get() = accounts.firstOrNull { it.account.id == activeAccountId }?.account
     val canAddAccount get() = accounts.size < CredentialStore.MAX_ACCOUNTS
     val provider get() = activeAccount?.provider ?: Provider.CLAUDE
     /** Both Claude and Codex accounts are tracked, so surfaces name the provider. */
     val mixedProviders get() = accounts.map { it.account.provider }.distinct().size > 1
+    val sessionResetRequested get() = notifySessionReset > 0 && notifySessionReset == usage.sessionResetMs
+    val weeklyResetRequested get() = notifyWeeklyReset > 0 && notifyWeeklyReset == usage.weeklyResetMs
     val remainingMs get() = (usage.sessionResetMs - now).coerceAtLeast(0)
     val sessionState get() = when { usage.sessionPct >= 85 -> "danger"; usage.sessionPct >= 60 -> "warning"; usage.sessionPct > 0 -> "safe"; else -> "idle" }
     val todaySessions get() = sessions.filter { Instant.ofEpochMilli(it.startMs).atZone(ZoneId.systemDefault()).toLocalDate() == LocalDate.now() }
@@ -54,6 +59,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val state = combine(app.repository.usage, app.repository.settings, app.repository.sessions, history, accounts) { usage, settings, sessions, history, (list, id) ->
         AppUiState(usage, settings, sessions, System.currentTimeMillis(), history, list, id)
     }.combine(app.repository.codexAnalytics) { s, analytics -> s.copy(codexAnalytics = analytics) }
+        .combine(app.repository.resetRequests) { s, (session, weekly) -> s.copy(notifySessionReset = session, notifyWeeklyReset = weekly) }
         .combine(ticker) { s, now -> s.copy(now = now) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppUiState())
 
@@ -65,6 +71,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         app.repository.setBoolean(Keys.GLYPH_LIGHTS, value)
         if (app.credentials.hasConnected()) UsagePollingService.start(app, repost = true)
     }
+    /** Home's reset planner: ping when the window resetting at [resetMs] does; null cancels. */
+    fun notifyReset(weekly: Boolean, resetMs: Long?) = viewModelScope.launch { app.repository.setResetRequest(weekly, resetMs) }
     fun quietHours(start: Int, end: Int) = viewModelScope.launch { app.repository.setQuietHours(start, end) }
     fun deleteSession(record: SessionRecord) = viewModelScope.launch { app.database.sessions().delete(record.id) }
     /** Clears history for the account being viewed only. */
