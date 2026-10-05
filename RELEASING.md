@@ -39,7 +39,7 @@ stops you from publishing an APK that can't install as an update. Debug builds a
 ## Cutting a release
 
 1. Commit everything. The script refuses to publish from a working tree with uncommitted changes.
-2. Run it from `session_sense/android`:
+2. Run it from the repository root:
 
    ```sh
    scripts/release.sh patch --notes $'- Fixed widget refresh\n- Faster startup'
@@ -75,7 +75,7 @@ the previous release, which installed apps already have, so nothing more is offe
 
 ## The keystore: back it up
 
-`sessionsense-release.jks` and `key.properties` (both in `session_sense/android/`, both git-ignored) sign every
+`sessionsense-release.jks` and `key.properties` (both in the repository root, both git-ignored) sign every
 release. **If the keystore or its passwords are lost, no future APK can update the installed app, ever.** Android
 refuses an update signed with a different key. Every user would have to uninstall, and lose their local data,
 to move to a newly signed app.

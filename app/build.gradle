@@ -19,6 +19,9 @@ def semverCode = { String name ->
 }
 def appVersionName = versionProperties["versionName"] as String
 def appVersionCode = semverCode(appVersionName)
+// The GitHub repo whose releases the sideload updater reads. Forks: pass -PupdateRepo=you/yourfork (or set it in
+// gradle.properties) so your builds never look at the official releases.
+def updateRepo = (project.findProperty("updateRepo") ?: "DevxD98/sessionsense") as String
 def lastReleasedName = (versionProperties["lastReleasedVersionName"] ?: "0.0.0") as String
 // A release build of an already-published version would be an APK that can never install as an update.
 gradle.taskGraph.whenReady { graph ->
@@ -44,7 +47,7 @@ android {
         sideload {
             dimension "distribution"
             isDefault true
-            buildConfigField "String", "UPDATE_MANIFEST_URL", '"https://github.com/DevxD98/sessionsense/releases/latest/download/update.json"'
+            buildConfigField "String", "UPDATE_MANIFEST_URL", "\"https://github.com/${updateRepo}/releases/latest/download/update.json\""
         }
         play { dimension "distribution" }
     }

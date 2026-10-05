@@ -1,0 +1,39 @@
+name: Bug report
+description: Something in SessionSense doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead. Screenshots help.
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: Settings → About
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Phone and Android version
+      placeholder: "Pixel 8, Android 15"
+    validations:
+      required: true
+  - type: dropdown
+    id: accounts
+    attributes:
+      label: Accounts involved
+      multiple: true
+      options:
+        - Claude Pro
+        - Claude Max
+        - Claude Team
+        - Codex (ChatGPT plan)
+  - type: markdown
+    attributes:
+      value: "**Never paste cookies, tokens or session keys here.** Found a security problem? Report it privately instead: see SECURITY.md."
