@@ -85,7 +85,15 @@ img{max-width:100%;display:block}
 code{overflow-wrap:anywhere}
 .mono{font-family:"IBM Plex Mono",ui-monospace,monospace;letter-spacing:.04em;text-transform:uppercase;font-size:13px}
 
-nav{display:flex;align-items:center;justify-content:space-between;padding:20px 0}
+.navwrap{position:sticky;top:12px;z-index:50;padding:12px 0 0}
+nav{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 10px 16px;border-radius:999px;
+  background:rgba(23,24,28,.55);border:1px solid rgba(255,255,255,.08);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 10px 40px rgba(0,0,0,.35);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%)}
+nav .links{align-items:center}
+nav .links a.pill{color:#0B0B0D;background:var(--teal);padding:7px 14px;border-radius:999px;font-weight:600}
+nav .links a.pill:hover{color:#0B0B0D;background:#8af0dd}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){nav{background:rgba(23,24,28,.94)}}
 nav .brand{display:flex;align-items:center;gap:10px;color:var(--text);text-decoration:none;font-weight:600;font-size:19px}
 nav .brand img{width:32px;height:32px;border-radius:8px}
 nav .links{display:flex;gap:22px}
@@ -111,6 +119,20 @@ h1 span{color:var(--teal)}
 .phones img{position:absolute;border-radius:34px;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.06)}
 .phones .front{height:540px;left:4%;top:0;z-index:2}
 .phones .back{height:490px;right:2%;top:50px;opacity:.9}
+.glass-phone{position:absolute;aspect-ratio:540/860;height:540px;border-radius:34px;overflow:hidden;container-type:inline-size;
+  box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08);background:#0B0C0E}
+.glass-phone[hidden]{display:none}
+.glass-phone canvas{width:100%;height:100%;display:block}
+.gbar{position:absolute;left:10.74%;width:78.52%;top:84.77%;height:9.77%;display:flex}
+.gpill{position:absolute;top:85.64%;height:8.02%;left:11.83%;width:24.81%;border-radius:999px;pointer-events:none;
+  background:rgba(110,231,208,.10);border:1px solid rgba(110,231,208,.38)}
+.gtab{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2cqw;
+  background:none;border:0;cursor:pointer;color:#C4C6CE;font:500 4.1cqw/1 Outfit,system-ui,sans-serif;padding:0;
+  -webkit-tap-highlight-color:transparent}
+.gtab svg{width:6.6cqw;height:6.6cqw;fill:currentColor}
+.gtab[aria-selected="true"]{color:var(--teal)}
+.gtab:focus-visible{outline:2px solid var(--teal);outline-offset:-4px;border-radius:999px}
+.glass-hint{position:absolute;left:4%;bottom:-34px;margin:0;color:var(--muted);font-size:11px}
 
 section{padding:72px 0;border-top:1px solid var(--line)}
 h2{font-size:clamp(28px,3.6vw,40px);line-height:1.15;letter-spacing:-.01em;margin:10px 0 14px;font-weight:600}
@@ -145,6 +167,7 @@ footer a{color:var(--muted)}
   .hero{grid-template-columns:1fr;padding-top:24px}
   .phones{height:470px}
   .phones .front{height:450px;left:0}
+  .glass-phone{height:450px}
   .phones .back{height:400px;top:46px;right:0}
   .grid,ol.steps{grid-template-columns:1fr}
   .split{grid-template-columns:1fr}
@@ -155,15 +178,18 @@ footer a{color:var(--muted)}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap navwrap">
   <nav>
     <a class="brand" href="./"><img src="img/icon-512.png" alt="" width="32" height="32">SessionSense</a>
     <div class="links">
       <a class="hide-sm" href="#features">Features</a>
       <a class="hide-sm" href="#faq">FAQ</a>
-      <a href="https://github.com/DevxD98/sessionsense">GitHub</a>
+      <a class="hide-sm" href="https://github.com/DevxD98/sessionsense">GitHub</a>
+      <a class="pill" href="https://github.com/DevxD98/sessionsense/releases/latest/download/sessionsense.apk">Download</a>
     </div>
   </nav>
+</div>
+<div class="wrap">
 
   <header class="hero">
     <div>
@@ -184,7 +210,17 @@ footer a{color:var(--muted)}
     </div>
     <div class="phones" aria-hidden="false">
       <img class="back" src="img/history.png" alt="History screen: weekly stats, today's usage curve and 7-day peaks" width="231" height="490" loading="eager">
-      <img class="front" src="img/home.png" alt="Home screen: live 5-hour session ring with time remaining, weekly, Opus and Sonnet quotas" width="254" height="540" loading="eager">
+      <img class="front" id="heroStatic" src="img/home.png" alt="Home screen: live 5-hour session ring with time remaining, weekly, Opus and Sonnet quotas" width="254" height="540" loading="eager">
+      <div class="front glass-phone" id="glassPhone" hidden>
+        <canvas role="img" aria-label="SessionSense screens scrolling behind the app's liquid-glass tab bar"></canvas>
+        <span class="gpill" aria-hidden="true"></span>
+        <div class="gbar" role="tablist" aria-label="Try the liquid-glass tab bar">
+          <button class="gtab" role="tab" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>Home</button>
+          <button class="gtab" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>History</button>
+          <button class="gtab" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.47.47 0 0 0-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87a.47.47 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.48.48 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>Settings</button>
+        </div>
+      </div>
+      <p class="glass-hint mono">Live liquid glass · tap a tab</p>
     </div>
   </header>
 </div>
@@ -268,5 +304,6 @@ footer a{color:var(--muted)}
     <p style="margin-top:16px">SessionSense is an independent app and isn't affiliated with Anthropic or OpenAI. Claude is a trademark of Anthropic; ChatGPT and Codex are trademarks of OpenAI.</p>
   </div>
 </footer>
+<script src="glass.js" defer></script>
 </body>
 </html>

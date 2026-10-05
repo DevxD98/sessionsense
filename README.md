@@ -58,7 +58,8 @@ They follow the account you're viewing and refresh as usage changes.
 That's it. Add a widget from your home screen's widget picker if you like.
 
 Prefer an app manager? Add the repo to [Obtainium](https://github.com/ImranR98/Obtainium) and it installs and updates
-SessionSense straight from these releases:
+SessionSense straight from these releases. Tap the badge **on your Android phone** with Obtainium installed (on a computer
+it only shows a redirect page), or add `https://github.com/DevxD98/sessionsense` in Obtainium by hand:
 
 <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/DevxD98/sessionsense"><img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" height="54" alt="Get it on Obtainium"></a>
 
