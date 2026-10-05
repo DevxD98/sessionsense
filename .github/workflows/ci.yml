@@ -3,7 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: ["site/**", "**.md", "llms.txt", "fastlane/**", "screenshots/**", ".github/social-preview.png", ".github/workflows/pages.yml"]
   pull_request:
+    paths-ignore: ["site/**", "**.md", "llms.txt", "fastlane/**", "screenshots/**", ".github/social-preview.png", ".github/workflows/pages.yml"]
 
 permissions:
   contents: read

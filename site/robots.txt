@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://devxd98.github.io/sessionsense/sitemap.xml
