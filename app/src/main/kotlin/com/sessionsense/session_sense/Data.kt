@@ -119,6 +119,8 @@ data class UserSettings(
     val weeklyDigest: Boolean = true,
     /** Nothing phones: false keeps SessionSense's live notification from driving the Glyph (see [GlyphSupport]). */
     val glyphLights: Boolean = true,
+    /** Share of the weekly limit the viewed account keeps in reserve (0, 10, 20 or 30). */
+    val weeklyReserve: Int = 0,
 )
 
 /** App-wide preferences. Per-account values live in [AccountKeys]. */
@@ -162,6 +164,8 @@ class AccountKeys(val accountId: String) {
     /** "Notify me when ready": the session / weekly reset time the user asked to hear about. See [resetNotifyDue]. */
     val NOTIFY_SESSION_RESET = longPreferencesKey("${prefix}notify_session_reset")
     val NOTIFY_WEEKLY_RESET = longPreferencesKey("${prefix}notify_weekly_reset")
+    /** % of the weekly limit kept in reserve. See [reserveState]. */
+    val WEEKLY_RESERVE = intPreferencesKey("${prefix}weekly_reserve")
 
     fun usage(p: Preferences) = UsageSnapshot(p[SESSION] ?: 0, p[WEEKLY] ?: 0, p[OPUS] ?: 0, p[SONNET] ?: 0,
         p[SESSION_RESET] ?: 0, p[WEEKLY_RESET] ?: 0, p[UPDATED] ?: 0, p[CONNECTION] ?: "idle", p[PLAN_TYPE] ?: "", p[SESSION_WINDOW] ?: true,
@@ -169,7 +173,7 @@ class AccountKeys(val accountId: String) {
 
     fun clear(p: MutablePreferences) = listOf(PLAN, SESSION, WEEKLY, OPUS, SONNET, SESSION_RESET, WEEKLY_RESET, UPDATED, CONNECTION,
         PREV_SESSION, ACTIVE_START, ACTIVE_PEAK, ACTIVE_RESET, LAST_SAMPLE, ALERT_FLAGS, PLAN_TYPE, SESSION_WINDOW, OPUS_REPORTED, SONNET_REPORTED, CODEX_ANALYTICS,
-        NOTIFY_SESSION_RESET, NOTIFY_WEEKLY_RESET).forEach { p.remove(it) }
+        NOTIFY_SESSION_RESET, NOTIFY_WEEKLY_RESET, WEEKLY_RESERVE).forEach { p.remove(it) }
 }
 
 data class AccountOverview(val account: Account, val usage: UsageSnapshot)
@@ -187,7 +191,8 @@ class SessionRepository(private val context: Context, private val db: SessionDat
         UserSettings(p[Keys.ROUTE] ?: "onboarding", p[AccountKeys(id).PLAN] ?: "pro",
             p[Keys.QUIET] ?: false, p[Keys.QUIET_START] ?: 22, p[Keys.QUIET_END] ?: 7,
             p[Keys.SESSION_ALERTS] ?: true, p[Keys.WEEKLY_ALERTS] ?: true,
-            p[Keys.MODEL_ALERTS] ?: true, p[Keys.DIGEST] ?: true, p[Keys.GLYPH_LIGHTS] ?: true)
+            p[Keys.MODEL_ALERTS] ?: true, p[Keys.DIGEST] ?: true, p[Keys.GLYPH_LIGHTS] ?: true,
+            p[AccountKeys(id).WEEKLY_RESERVE] ?: 0)
     }
     val sessions = activeAccountId.flatMapLatest { db.sessions().observeAll(it) }
     val codexAnalytics = combine(context.dataStore.data, activeAccountId) { p, id -> p[AccountKeys(id).CODEX_ANALYTICS]?.let(CodexAnalytics::fromJson) }.distinctUntilChanged()
@@ -200,6 +205,7 @@ class SessionRepository(private val context: Context, private val db: SessionDat
     suspend fun preferences() = context.dataStore.data.first()
     suspend fun setRoute(value: String) = context.dataStore.edit { it[Keys.ROUTE] = value }
     suspend fun setActive(id: String) = context.dataStore.edit { it[Keys.ACTIVE_ACCOUNT] = id }
+    suspend fun setReserve(value: Int) { val id = activeId(); context.dataStore.edit { it[AccountKeys(id).WEEKLY_RESERVE] = value } }
     suspend fun setPlan(value: String) { val id = activeId(); context.dataStore.edit { it[AccountKeys(id).PLAN] = value } }
     suspend fun setBoolean(key: Preferences.Key<Boolean>, value: Boolean) = context.dataStore.edit { it[key] = value }
     /** Asks for (or, with null, cancels) a ping when the viewed account's session or weekly window resets. */

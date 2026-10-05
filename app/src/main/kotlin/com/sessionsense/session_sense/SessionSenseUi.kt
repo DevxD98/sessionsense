@@ -164,20 +164,24 @@ enum class CapsuleStyle { Primary, Secondary, Destructive }
  * Apple Fitness-style activity ring: a tinted track, a gradient stroke along the sweep, and a glowing tip.
  * Progress springs (medium-bouncy) rather than tweening, including on first appearance.
  */
-@Composable private fun ActivityRing(progress: Float, colors: List<Color>, stroke: Dp, modifier: Modifier = Modifier, glow: Boolean = true) {
+@Composable private fun ActivityRing(progress: Float, colors: List<Color>, stroke: Dp, modifier: Modifier = Modifier, glow: Boolean = true, reserve: Float = 0f) {
     val anim = remember { Animatable(0f) }
     LaunchedEffect(progress) { anim.animateTo(progress.coerceIn(0f, 1f), ringSpring()) }
     val start by animateColorAsState(colors[0], smooth(), label = "ringStart")
     val end by animateColorAsState(colors[1], smooth(), label = "ringEnd")
-    Canvas(modifier) { drawActivityRing(center, size.minDimension, stroke.toPx(), anim.value, start, end, glow) }
+    Canvas(modifier) { drawActivityRing(center, size.minDimension, stroke.toPx(), anim.value, start, end, glow, reserve = reserve) }
 }
 
-/** One activity ring of outer [diameter] and stroke [w] around [c]: track, gradient sweep, glowing tip. Shared with the launch animation. */
-internal fun DrawScope.drawActivityRing(c: Offset, diameter: Float, w: Float, progress: Float, start: Color, end: Color, glow: Boolean = true, alpha: Float = 1f) {
+/**
+ * One activity ring of outer [diameter] and stroke [w] around [c]: track, gradient sweep, glowing tip. Shared with the
+ * launch animation. [reserve] (a fraction) marks the end of the track as held back, a little brighter than the rest.
+ */
+internal fun DrawScope.drawActivityRing(c: Offset, diameter: Float, w: Float, progress: Float, start: Color, end: Color, glow: Boolean = true, alpha: Float = 1f, reserve: Float = 0f) {
     val r = (diameter - w) / 2f
     if (r <= 0f || alpha <= 0f) return
     val topLeft = Offset(c.x - r, c.y - r); val arc = Size(r * 2, r * 2)
     drawCircle(start.copy(alpha = .14f * alpha), r, c, style = Stroke(w))
+    if (reserve > 0f) drawArc(end.copy(alpha = .36f * alpha), -90f + 360f * (1f - reserve), 360f * reserve, false, topLeft, arc, style = Stroke(w))
     val p = progress.coerceIn(0f, 1f)
     if (p < .002f) return
     // Start the gradient half a cap early so the rounded start cap is the start colour, not the wrapped end colour.
@@ -548,13 +552,15 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
     // otherwise the weekly window sits next to the plan it runs on.
     val models = if (s.provider == Provider.CLAUDE) listOfNotNull(Triple("Opus", s.usage.opusPct, Amber).takeIf { s.usage.opusReported },
         Triple("Sonnet", s.usage.sonnetPct, Teal).takeIf { s.usage.sonnetReported }) else emptyList()
+    val reserve = s.reserve.reserve / 100f
     if (models.isEmpty()) Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(S2)) {
-        Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f).fillMaxHeight(), large = true)
+        Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f).fillMaxHeight(), large = true, reserve = reserve)
         val plan = if (s.provider == Provider.CODEX) planLabel(s.usage.planType) else "Claude ${claudePlanName(s.settings.plan)}"
         PlanTile(s.provider, plan, s.usage.weeklyResetMs, s.now, Modifier.weight(1f).fillMaxHeight())
     }
-    else Row(horizontalArrangement = Arrangement.spacedBy(S2)) { Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f)); models.forEach { (label, pct, color) -> Metric(label, pct, color, Modifier.weight(1f)) } }
+    else Row(horizontalArrangement = Arrangement.spacedBy(S2)) { Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f), reserve = reserve); models.forEach { (label, pct, color) -> Metric(label, pct, color, Modifier.weight(1f)) } }
     Spacer(Modifier.height(S2))
+    if (s.reserve.reserve > 0) { ReserveLine(s.reserve); Spacer(Modifier.height(S2)) }
     if (s.provider == Provider.CODEX) s.codexAnalytics?.let { CodexModelsCard(it); Spacer(Modifier.height(S2)) }
     s.runway?.let { RunwayCard(it); Spacer(Modifier.height(S2)) }
     Card {
@@ -574,6 +580,21 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
     } else Column(verticalArrangement = Arrangement.spacedBy(S1)) {
         if (live) LiveSessionRow(s)
         s.todaySessions.forEach { SessionRow(it, s.history.between(it.startMs, it.endMs), vm::deleteSession) }
+    }
+}
+
+/** What's free of the weekly limit with a reserve kept back; Amber once into the reserve, Coral under 5% of it left. */
+@Composable private fun ReserveLine(r: ReserveState) {
+    val color = when { !r.inReserve -> Blue; r.reserveLeft < 5 -> Coral; else -> Amber }
+    val shape = RoundedCornerShape(18.dp)
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        fun bold(v: String) { pushStyle(androidx.compose.ui.text.SpanStyle(color = color, fontWeight = FontWeight.SemiBold)); append(v); pop() }
+        if (r.inReserve) { append("Using reserve · "); bold("${r.reserveLeft}%"); append(" of ${r.reserve}% left") }
+        else { bold("${r.free}%"); append(" freely available · ${r.reserve}% reserved") }
+    }
+    Row(Modifier.fillMaxWidth().clip(shape).background(color.copy(alpha = .08f)).border(1.dp, color.copy(alpha = .28f), shape).heightIn(min = 48.dp).padding(horizontal = S3, vertical = S2), verticalAlignment = Alignment.CenterVertically) {
+        Label("WEEKLY RESERVE", color = color); Spacer(Modifier.width(S2))
+        Text(text, color = Text, fontSize = 14.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
     }
 }
 
@@ -795,11 +816,11 @@ private fun planLabel(plan: String) = plan.trim().ifEmpty { "ChatGPT" }.split('_
 }
 
 /** [large] is the two-up layout (weekly beside the plan tile): a bigger, bolder ring so it holds its own against the plan badge. */
-@Composable private fun Metric(label: String, pct: Int, color: Color, modifier: Modifier = Modifier, large: Boolean = false) =
+@Composable private fun Metric(label: String, pct: Int, color: Color, modifier: Modifier = Modifier, large: Boolean = false, reserve: Float = 0f) =
     Card(modifier, padding = S2, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
     Spacer(Modifier.height(4.dp))
     Box(Modifier.size(if (large) 96.dp else 62.dp), contentAlignment = Alignment.Center) {
-        ActivityRing(pct / 100f, listOf(lerp(color, Text, .35f), color), if (large) 11.dp else 7.dp, Modifier.fillMaxSize())
+        ActivityRing(pct / 100f, listOf(lerp(color, Text, .35f), color), if (large) 11.dp else 7.dp, Modifier.fillMaxSize(), reserve = reserve)
         Text("$pct%", color = Text, fontFamily = PlexMono, fontSize = if (large) 20.sp else 13.sp)
     }
     Spacer(Modifier.height(S2)); Text(label, color = if (large) Text else Muted, fontSize = if (large) 15.sp else 13.sp, fontWeight = if (large) FontWeight.SemiBold else FontWeight.Medium)
@@ -990,6 +1011,15 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
                 Text("Change", color = Teal, fontWeight = FontWeight.SemiBold)
             }
         }
+        Spacer(Modifier.height(S2))
+        Card {
+            Text("Weekly reserve", color = Text, fontSize = 16.sp)
+            Spacer(Modifier.height(4.dp)); Text("Keep part of $name’s weekly limit for later. Home shows what’s free, and weekly alerts tell you when you’re close to the reserve and when you’re into it.", color = Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            Spacer(Modifier.height(S2))
+            Row(horizontalArrangement = Arrangement.spacedBy(S1)) {
+                listOf(0, 10, 20, 30).forEach { r -> SelectChip(if (r == 0) "Off" else "$r%", s.settings.weeklyReserve == r) { haptics.performHapticFeedback(HapticFeedbackType.SegmentTick); vm.reserve(r) } }
+            }
+        }
         Spacer(Modifier.height(S4)); SectionLabel("ALERTS")
         Card(padding = 0.dp) {
             Toggle("Session and reset alerts", s.settings.sessionAlerts) { vm.toggle(Keys.SESSION_ALERTS, it) }; Divider()
@@ -1039,6 +1069,13 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
 
 @Composable private fun Chip(label: String, onClick: () -> Unit) = Pressable(onClick, Modifier.clip(CircleShape).background(Teal.copy(alpha = .12f)).border(1.dp, Teal.copy(alpha = .3f), CircleShape)) {
     Text(label, Modifier.padding(horizontal = 14.dp, vertical = 7.dp), color = Teal, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+}
+
+@Composable private fun SelectChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (selected) Teal.copy(alpha = .18f) else Color.White.copy(alpha = .05f), smooth(), label = "chipBg")
+    Pressable(onClick, Modifier.clip(CircleShape).background(bg).border(1.dp, if (selected) Teal.copy(alpha = .45f) else Hairline, CircleShape).heightIn(min = 40.dp), role = Role.RadioButton, contentAlignment = Alignment.Center) {
+        Text(label, Modifier.padding(horizontal = 16.dp, vertical = 9.dp), color = if (selected) Teal else Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
 }
 
 @Composable internal fun Toggle(label: String, checked: Boolean, detail: String? = null, set: (Boolean) -> Unit) {

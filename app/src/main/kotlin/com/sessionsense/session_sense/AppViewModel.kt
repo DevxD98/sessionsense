@@ -43,6 +43,7 @@ data class AppUiState(
     /** When this 5-hour window would run out; null when there's nothing to project. */
     val runway get() = runway(usage, history.between(usage.sessionResetMs - SESSION_MS, now), now)
     // The Runway card already says when the session limit is hit, so Pace insight doesn't repeat it.
+    val reserve get() = reserveState(usage.weeklyPct, settings.weeklyReserve)
     val insight get() = paceInsight(usage, now, skipSessionLimit = runway != null)
 }
 
@@ -73,6 +74,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     /** Home's reset planner: ping when the window resetting at [resetMs] does; null cancels. */
     fun notifyReset(weekly: Boolean, resetMs: Long?) = viewModelScope.launch { app.repository.setResetRequest(weekly, resetMs) }
+    fun reserve(value: Int) = viewModelScope.launch { app.repository.setReserve(value) }
     fun quietHours(start: Int, end: Int) = viewModelScope.launch { app.repository.setQuietHours(start, end) }
     fun deleteSession(record: SessionRecord) = viewModelScope.launch { app.database.sessions().delete(record.id) }
     /** Clears history for the account being viewed only. */

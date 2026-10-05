@@ -485,6 +485,18 @@ class NotificationCenter(private val context: Context) {
                 alert(id, "Weekly usage at ${s.weeklyPct}%", "Resets ${formatTime(s.weeklyResetMs)}")
             }
         }
+        // Weekly reserve: once each per weekly window, like the other weekly alerts.
+        val reserve = old[k.WEEKLY_RESERVE] ?: 0
+        if (settings.weeklyAlerts) reserveAlerts(oldWeekly, s.weeklyPct, reserve).forEach { kind ->
+            when (kind) {
+                ReserveAlert.NEAR -> once("reserve-near:${s.weeklyResetMs}") {
+                    alert(206, "${reserveState(s.weeklyPct, reserve).free}% left before your reserve", "Weekly at ${s.weeklyPct}% · $reserve% kept in reserve")
+                }
+                ReserveAlert.ENTERED -> once("reserve-in:${s.weeklyResetMs}") {
+                    alert(207, "You’re into your $reserve% reserve", "Weekly at ${s.weeklyPct}% · resets ${formatTime(s.weeklyResetMs)}")
+                }
+            }
+        }
         val oldOpus = old[k.OPUS] ?: 0
         if (settings.modelAlerts && s.opusReported && oldOpus < 80 && s.opusPct >= 80) once("opus:80:${s.weeklyResetMs}") {
             alert(203, "Opus quota at ${s.opusPct}%", "Your Opus allowance is nearing its limit.")
