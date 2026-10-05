@@ -29,12 +29,18 @@ class UsagePollingService : Service() {
         // startForeground must be called now. Post the last stored usage, not a blank placeholder: a placeholder replaced by
         // the real content on the first poll is two posts, and each one flashes the Glyph.
         val (snapshot, label) = runBlocking { withTimeoutOrNull(500) { app.repository.snapshot() to activeLabel() } } ?: (UsageSnapshot() to null)
+        glyphLights = runBlocking { withTimeoutOrNull(500) { app.repository.settings.first().glyphLights } } ?: true
         showOngoing(snapshot, label, quiet = false, force = true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         scope.coroutineContext.cancelChildren()
         scope.launch {
+            // The Glyph setting changed: post once now so the progress bar appears or disappears without waiting for a change.
+            if (intent?.getBooleanExtra(EXTRA_REPOST, false) == true) {
+                glyphLights = app.repository.settings.first().glyphLights
+                showOngoing(app.repository.snapshot(), activeLabel(), quiet = false, force = true)
+            }
             while (isActive) {
                 // An unexpected failure skips one poll; left uncaught it would crash the whole app.
                 try { pollAll() } catch (e: CancellationException) { throw e } catch (e: Exception) { Log.w(TAG, "Poll failed", e) }
@@ -288,20 +294,23 @@ class UsagePollingService : Service() {
 
     private var shownOngoing: OngoingContent? = null
     private var shownOngoingAt = 0L
+    /** [UserSettings.glyphLights]: off means no progress bar and re-posts only when a session starts or ends. */
+    @Volatile private var glyphLights = true
 
     /** Re-posts the live notification only when [OngoingPolicy] says so: every post makes the Nothing Glyph flash. */
     private fun showOngoing(snapshot: UsageSnapshot, label: String?, quiet: Boolean, force: Boolean = false) {
         val now = System.currentTimeMillis()
         val content = ongoingContent(snapshot, label, now)
-        if (!force && !OngoingPolicy.shouldRepost(shownOngoing, shownOngoingAt, content, now, quiet)) return
+        if (!force && !OngoingPolicy.shouldRepost(shownOngoing, shownOngoingAt, content, now, quiet, minimal = !glyphLights)) return
         shownOngoing = content; shownOngoingAt = now
         // The OS can refuse a foreground start (e.g. a background start on Android 12+); stop instead of crashing.
         // MainActivity starts the service again whenever the app is opened.
-        try { startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(content)) } catch (e: Exception) { Log.w(TAG, "startForeground refused", e); stopSelf() }
+        try { startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(content, progress = glyphLights)) } catch (e: Exception) { Log.w(TAG, "startForeground refused", e); stopSelf() }
     }
 
     private suspend fun refreshActiveSurfaces(account: Account, label: String?) {
         val s = app.repository.settings.first()
+        glyphLights = s.glyphLights
         showOngoing(app.repository.snapshot(), label, isQuietHour(s.quietHours, s.quietStart, s.quietEnd, LocalTime.now().hour))
         SessionSenseWidgets.updateAll(this)
     }
@@ -322,7 +331,11 @@ class UsagePollingService : Service() {
         // Android 12+ refuses foreground-service starts while the app is in the background (e.g. the process was spun up
         // for a widget update or by WorkManager). That throws and would kill the process, so treat it as "try again later":
         // MainActivity starts the service whenever the app is opened.
-        fun start(context: Context) = runCatching { ContextCompat.startForegroundService(context, Intent(context, UsagePollingService::class.java)) }.isSuccess
+        // A running service only gets onStartCommand, so [repost] asks it to post the live notification once, now.
+        private const val EXTRA_REPOST = "repost"
+        fun start(context: Context, repost: Boolean = false) = runCatching {
+            ContextCompat.startForegroundService(context, Intent(context, UsagePollingService::class.java).putExtra(EXTRA_REPOST, repost))
+        }.isSuccess
         fun stop(context: Context) = context.stopService(Intent(context, UsagePollingService::class.java))
     }
 }
@@ -367,16 +380,20 @@ fun ongoingContent(s: UsageSnapshot, account: String?, now: Long, zone: ZoneId =
  * percentage tick waits until [MIN_REPOST_MS] after the last post. Only changes the user needs straight away go out
  * at once: another account, the login state, a new or finished window, or a step into the amber/coral/full colour band.
  * During quiet hours only the account and login state get through; everything else waits until quiet hours end.
+ * [minimal] (the Glyph switch is off) also drops percentage ticks and band changes: only the account, the login state
+ * and a window starting or ending re-post, so on a Nothing phone the Glyph flashes a few times per session at most.
  */
 object OngoingPolicy {
     const val MIN_REPOST_MS = 10 * 60_000L
 
-    fun shouldRepost(shown: OngoingContent?, shownAtMs: Long, next: OngoingContent, now: Long, quiet: Boolean): Boolean {
+    fun shouldRepost(shown: OngoingContent?, shownAtMs: Long, next: OngoingContent, now: Long, quiet: Boolean, minimal: Boolean = false): Boolean {
         if (shown == null) return true
         if (next == shown) return false
         if (next.title != shown.title || next.expired != shown.expired) return true
         if (quiet) return false
-        if (next.countdownToMs != shown.countdownToMs || band(next.pct) != band(shown.pct)) return true
+        if (next.countdownToMs != shown.countdownToMs) return true
+        if (minimal) return false
+        if (band(next.pct) != band(shown.pct)) return true
         return now - shownAtMs >= MIN_REPOST_MS
     }
 
@@ -394,15 +411,16 @@ class NotificationCenter(private val context: Context) {
         manager.createNotificationChannel(NotificationChannel(TIPS_CHANNEL, "Tips", NotificationManager.IMPORTANCE_MIN))
     }
 
-    fun ongoing(c: OngoingContent): Notification {
+    fun ongoing(c: OngoingContent, progress: Boolean = true): Notification {
         val builder = base(ONGOING_CHANNEL).setContentTitle(c.title).setContentText(c.text).setOngoing(true).setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_STATUS)
         // The system ticks the countdown itself, so the notification doesn't have to be re-posted every minute.
         if (c.countdownToMs > 0) builder.setWhen(c.countdownToMs).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true)
         else builder.setShowWhen(false)
         // A progress bar only while a window is running. Nothing's Glyph Progress mirrors it, so an idle, offline or
-        // indeterminate (animated) bar would light the Glyph when there's nothing to show.
-        if (c.countdownToMs > 0) {
+        // indeterminate (animated) bar would light the Glyph when there's nothing to show. None at all when the user
+        // switched SessionSense's Glyph lights off.
+        if (progress && c.countdownToMs > 0) {
             if (Build.VERSION.SDK_INT >= 36) builder.setStyle(Notification.ProgressStyle().setProgress(c.pct)
                 .addProgressSegment(Notification.ProgressStyle.Segment(100).setColor(accent(c.pct))))
             else builder.setProgress(100, c.pct, false)

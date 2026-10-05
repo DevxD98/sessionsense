@@ -57,6 +57,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun route(value: String) = viewModelScope.launch { app.repository.setRoute(value) }
     fun plan(value: String) = viewModelScope.launch { app.repository.setPlan(value); SessionSenseWidgets.updateAll(app, force = true) }
     fun toggle(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, value: Boolean) = viewModelScope.launch { app.repository.setBoolean(key, value) }
+    /** Re-posts the live notification once so its progress bar appears or goes straight away. */
+    fun glyphLights(value: Boolean) = viewModelScope.launch {
+        app.repository.setBoolean(Keys.GLYPH_LIGHTS, value)
+        if (app.credentials.hasConnected()) UsagePollingService.start(app, repost = true)
+    }
     fun quietHours(start: Int, end: Int) = viewModelScope.launch { app.repository.setQuietHours(start, end) }
     fun deleteSession(record: SessionRecord) = viewModelScope.launch { app.database.sessions().delete(record.id) }
     /** Clears history for the account being viewed only. */

@@ -957,6 +957,21 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
                 }
             }
         }
+        // Nothing phones with Glyph lights only; the switch changes SessionSense's own notifications, nothing else.
+        val glyph = remember { GlyphSupport.available(context) }
+        if (glyph) {
+            Spacer(Modifier.height(S4)); SectionLabel("GLYPH")
+            Card(padding = 0.dp) {
+                Toggle("SessionSense lights up the Glyph", s.settings.glyphLights, detail = "Off: SessionSense’s live notification has no progress bar and only updates when a session starts or ends. Your other apps aren’t affected. SessionSense alerts can still light the Glyph; to stop those too, switch off SessionSense in Glyph notifications.") { vm.glyphLights(it) }
+                Divider()
+                Pressable({ GlyphSupport.openSettings(context) }, Modifier.fillMaxWidth(), role = Role.Button) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = S3), verticalAlignment = Alignment.CenterVertically) {
+                        Text("SessionSense in Glyph notifications", Modifier.weight(1f), color = Teal, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Glyph(GlyphKind.Back, Teal, Modifier.size(14.dp).rotate(180f))
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(S4)); AboutSection(s.now)
         Spacer(Modifier.height(S4)); SectionLabel("ACCOUNT & DATA")
         Column(verticalArrangement = Arrangement.spacedBy(S2)) {
@@ -976,11 +991,14 @@ private fun pctColor(pct: Int) = if (pct >= 85) Coral else if (pct >= 60) Amber 
     Text(label, Modifier.padding(horizontal = 14.dp, vertical = 7.dp), color = Teal, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
 }
 
-@Composable internal fun Toggle(label: String, checked: Boolean, set: (Boolean) -> Unit) {
+@Composable internal fun Toggle(label: String, checked: Boolean, detail: String? = null, set: (Boolean) -> Unit) {
     val haptics = LocalHapticFeedback.current
     val change = { v: Boolean -> haptics.performHapticFeedback(if (v) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff); set(v) }
-    Row(Modifier.fillMaxWidth().selectable(checked, role = Role.Switch) { change(!checked) }.heightIn(min = 60.dp).padding(horizontal = S3), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), color = Text, fontSize = 16.sp)
+    Row(Modifier.fillMaxWidth().selectable(checked, role = Role.Switch) { change(!checked) }.heightIn(min = 60.dp).padding(horizontal = S3, vertical = if (detail != null) S2 else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = S2)) {
+            Text(label, color = Text, fontSize = 16.sp)
+            if (detail != null) { Spacer(Modifier.height(4.dp)); Text(detail, color = Muted, fontSize = 13.sp, lineHeight = 18.sp) }
+        }
         Switch(checked, change, colors = SwitchDefaults.colors(checkedThumbColor = Bg, checkedTrackColor = Teal, checkedBorderColor = Teal,
             uncheckedThumbColor = Muted, uncheckedTrackColor = Surface2, uncheckedBorderColor = Faint.copy(alpha = .6f)))
     }

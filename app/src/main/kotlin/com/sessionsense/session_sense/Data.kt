@@ -117,6 +117,8 @@ data class UserSettings(
     val weeklyAlerts: Boolean = true,
     val modelAlerts: Boolean = true,
     val weeklyDigest: Boolean = true,
+    /** Nothing phones: false keeps SessionSense's live notification from driving the Glyph (see [GlyphSupport]). */
+    val glyphLights: Boolean = true,
 )
 
 /** App-wide preferences. Per-account values live in [AccountKeys]. */
@@ -130,6 +132,7 @@ object Keys {
     val WEEKLY_ALERTS = booleanPreferencesKey("weekly_alerts")
     val MODEL_ALERTS = booleanPreferencesKey("model_alerts")
     val DIGEST = booleanPreferencesKey("weekly_digest")
+    val GLYPH_LIGHTS = booleanPreferencesKey("glyph_lights")
 }
 
 /** Usage, session-tracking and alert state for one account. The default account uses the original key names. */
@@ -180,7 +183,7 @@ class SessionRepository(private val context: Context, private val db: SessionDat
         UserSettings(p[Keys.ROUTE] ?: "onboarding", p[AccountKeys(id).PLAN] ?: "pro",
             p[Keys.QUIET] ?: false, p[Keys.QUIET_START] ?: 22, p[Keys.QUIET_END] ?: 7,
             p[Keys.SESSION_ALERTS] ?: true, p[Keys.WEEKLY_ALERTS] ?: true,
-            p[Keys.MODEL_ALERTS] ?: true, p[Keys.DIGEST] ?: true)
+            p[Keys.MODEL_ALERTS] ?: true, p[Keys.DIGEST] ?: true, p[Keys.GLYPH_LIGHTS] ?: true)
     }
     val sessions = activeAccountId.flatMapLatest { db.sessions().observeAll(it) }
     val codexAnalytics = combine(context.dataStore.data, activeAccountId) { p, id -> p[AccountKeys(id).CODEX_ANALYTICS]?.let(CodexAnalytics::fromJson) }.distinctUntilChanged()
