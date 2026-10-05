@@ -1,6 +1,6 @@
 <div align="center">
 
-# SessionSense
+# SessionSense: Claude & Codex usage tracker for Android
 
 **Know exactly where you stand with your Claude and Codex limits — right from your phone.**
 
@@ -21,6 +21,13 @@ Free and open source (MIT).
 <img src="screenshots/settings-about.png" width="23%" alt="Settings: alerts, quiet hours and About">
 
 </div>
+
+**SessionSense** is a free, open-source Android app that tracks your **Claude usage limits** and **Codex usage limits**
+in real time. It shows how much of your **Claude Pro, Max or Team** plan's **5-hour session limit** and **weekly limit**
+you've used, including what **Claude Code** draws from the same plan. It does the same for **Codex** on a
+**ChatGPT** plan. Alerts reach you before you hit a rate limit, and home-screen widgets keep the numbers one glance
+away. There's no account to create, no server and no analytics: it reads your usage straight from claude.ai and
+chatgpt.com on your phone.
 
 ## What it does
 
@@ -103,6 +110,57 @@ Make sure notifications are allowed for SessionSense, and exclude it from batter
 <summary><b>"Session expired — tap to reconnect"</b></summary>
 
 claude.ai or chatgpt.com signed you out (this happens after a while, or if you sign out on the web). Tap the banner and sign in again; your history is kept.
+</details>
+
+## FAQ
+
+<details>
+<summary><b>How do I check my Claude usage limit on my phone?</b></summary>
+
+Install SessionSense, sign in with your Claude account in the app, and Home shows your current 5-hour session usage,
+your weekly usage and when each one resets. Add a widget to see it without opening the app.
+</details>
+
+<details>
+<summary><b>Does it track Claude Code usage?</b></summary>
+
+Yes. Claude Code on a Pro or Max plan uses the same 5-hour and weekly limits as claude.ai, so SessionSense shows how
+much you have left whether you spend it in chat or in Claude Code.
+</details>
+
+<details>
+<summary><b>Does it work with Codex and ChatGPT?</b></summary>
+
+Yes. Add a ChatGPT account and SessionSense shows your Codex usage limits alongside Claude. You can add up to three
+accounts and switch between them with one tap.
+</details>
+
+<details>
+<summary><b>When does my Claude limit reset?</b></summary>
+
+Claude uses a rolling 5-hour session window plus a weekly limit. SessionSense shows the exact reset time for both,
+counts down to it, and can notify you when a window resets.
+</details>
+
+<details>
+<summary><b>Is it safe? Does it see my password?</b></summary>
+
+No. You sign in on claude.ai or chatgpt.com in an in-app browser, and SessionSense never sees your password. Only
+the session needed to read your usage is stored, encrypted on your phone. The code is open source, so you can check.
+See [Privacy & security](#privacy--security).
+</details>
+
+<details>
+<summary><b>Is there an iPhone or desktop version?</b></summary>
+
+Not yet. SessionSense is Android only (Android 8.0+). It isn't on the Play Store; install the APK from
+[Releases](https://github.com/DevxD98/sessionsense/releases/latest), and it updates itself after that.
+</details>
+
+<details>
+<summary><b>Is it official?</b></summary>
+
+No. SessionSense is an independent open-source project, not made by Anthropic or OpenAI.
 </details>
 
 ## Build from source

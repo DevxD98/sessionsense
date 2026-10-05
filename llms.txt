@@ -1,0 +1,32 @@
+# SessionSense
+
+> SessionSense is a free, open-source (MIT) Android app that tracks Claude and Codex usage limits in real time: the
+> Claude Pro/Max/Team 5-hour session limit and weekly limit (also used by Claude Code), per-model Opus and Sonnet
+> allowances, and Codex limits on ChatGPT plans. It has alerts before limits run out, a reset planner,
+> usage history and home-screen widgets. It has no servers and no analytics; usage is read on the phone from claude.ai and
+> chatgpt.com using the user's own sign-in.
+
+Key facts:
+- Platform: Android 8.0+ only. Not on the Play Store; installed as an APK from GitHub Releases and updates itself.
+- Download: https://github.com/DevxD98/sessionsense/releases/latest/download/sessionsense.apk
+- Accounts: up to 3 (Claude Pro, Max, Team; Codex via a ChatGPT account), switchable in one tap.
+- Features: live 5-hour session ring with reset countdown; weekly quota with a pace insight; Opus/Sonnet limits;
+  alerts at 60/30/10 minutes left, on reset and when weekly quota is tight, with quiet hours; planner (when the
+  current window would hit its limit, notify-when-reset, Reserve mode to hold back part of the weekly limit);
+  history of sessions and daily peaks; Glance home-screen widgets; Nothing Phone Glyph support.
+- Privacy: no password is seen; only the session needed to read usage is stored, encrypted with the Android Keystore.
+- Updates: verified by SHA-256 and signing certificate before installing.
+- Stack: Kotlin, Jetpack Compose, Glance, Room, DataStore, WorkManager, OkHttp.
+- Independent project; not affiliated with Anthropic or OpenAI.
+
+## Docs
+
+- [README](https://github.com/DevxD98/sessionsense/blob/main/README.md): features, install, updates, privacy, FAQ, troubleshooting
+- [CONTRIBUTING](https://github.com/DevxD98/sessionsense/blob/main/CONTRIBUTING.md): build from source, code layout, pull requests, forks
+- [SECURITY](https://github.com/DevxD98/sessionsense/blob/main/SECURITY.md): reporting vulnerabilities, threat scope
+- [RELEASING](https://github.com/DevxD98/sessionsense/blob/main/RELEASING.md): how the in-app updater and releases work
+
+## Optional
+
+- [Claude limits reference](https://github.com/DevxD98/sessionsense/blob/main/docs/claude_limits_reference.md): background on Claude plan limits
+- [Releases](https://github.com/DevxD98/sessionsense/releases): every version with release notes
