@@ -5,7 +5,7 @@
 **Know exactly where you stand with your Claude and Codex limits — right from your phone.**
 
 A live 5-hour session ring, weekly quotas, alerts before you hit a wall, history, and home-screen widgets.<br>
-Free and open source (MIT).
+Free and open source (MIT) · [devxd98.github.io/sessionsense](https://devxd98.github.io/sessionsense/)
 
 [![Download APK](https://img.shields.io/badge/Download-APK-6EE7D0?style=for-the-badge&logo=android&logoColor=0B0B0D)](https://github.com/DevxD98/sessionsense/releases/latest/download/sessionsense.apk)
 [![Latest release](https://img.shields.io/github/v/release/DevxD98/sessionsense?style=for-the-badge&color=8BB4FF&label=latest)](https://github.com/DevxD98/sessionsense/releases/latest)
