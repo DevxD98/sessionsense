@@ -160,8 +160,8 @@ internal abstract class UsageWidget(val receiver: Class<out UsageWidgetReceiver>
 private object SmallWidget : UsageWidget(SessionSenseWidgetSmall::class.java, DpSize(110.dp, 110.dp)) {
     @Composable override fun ColumnScope.Content(context: Context, d: WidgetData) {
         // Scale with the cell the launcher gives the widget, so a big cell isn't a small ring in a corner.
-        val s = d.usage; val size = LocalSize.current; val f = (min(size.width.value, size.height.value) / 110f).coerceIn(1f, 1.6f)
-        val ring = min(size.width.value * .5f, size.height.value - 32f - 52f * f).coerceIn(52f, 150f)
+        val s = d.usage; val size = LocalSize.current; val f = (min(size.width.value, size.height.value) / 110f).coerceIn(1f, 1.3f)
+        val ring = min(size.width.value * .55f, size.height.value - 32f - 48f * f).coerceIn(52f, 150f)
         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Box(GlanceModifier.size(ring.dp), contentAlignment = Alignment.Center) {
                 // With no 5-hour window reported (Codex, sometimes), the weekly window is all there is to show.
@@ -188,7 +188,8 @@ private object SmallWidget : UsageWidget(SessionSenseWidgetSmall::class.java, Dp
 
 private object MediumWidget : UsageWidget(SessionSenseWidgetMedium::class.java, DpSize(250.dp, 110.dp)) {
     @Composable override fun ColumnScope.Content(context: Context, d: WidgetData) {
-        val size = LocalSize.current; val f = (size.height.value / 110f).coerceIn(1f, 1.5f)
+        // The legend is about 130dp tall at f = 1 (four rows with an account name); scale it only as far as it fits.
+        val size = LocalSize.current; val f = ((size.height.value - 32f) / 130f).coerceIn(.8f, 1.3f)
         // Centred in the cell: a taller cell than 2 rows would otherwise leave an empty band under the rings.
         Spacer(GlanceModifier.defaultWeight())
         RingsWithLegend(context, d, min(size.height.value - 32f, size.width.value * .42f).coerceIn(84f, 180f), f)
