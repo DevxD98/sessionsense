@@ -556,6 +556,7 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
     else Row(horizontalArrangement = Arrangement.spacedBy(S2)) { Metric("Weekly", s.usage.weeklyPct, Blue, Modifier.weight(1f)); models.forEach { (label, pct, color) -> Metric(label, pct, color, Modifier.weight(1f)) } }
     Spacer(Modifier.height(S2))
     if (s.provider == Provider.CODEX) s.codexAnalytics?.let { CodexModelsCard(it); Spacer(Modifier.height(S2)) }
+    s.runway?.let { RunwayCard(it); Spacer(Modifier.height(S2)) }
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).background(Teal.copy(alpha = .14f), CircleShape), contentAlignment = Alignment.Center) { Text("↗", color = Teal, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
@@ -572,6 +573,23 @@ private val LocalShell = staticCompositionLocalOf { ShellActions({}, {}, {}, {})
     } else Column(verticalArrangement = Arrangement.spacedBy(S1)) {
         if (live) LiveSessionRow(s)
         s.todaySessions.forEach { SessionRow(it, s.history.between(it.startMs, it.endMs), vm::deleteSession) }
+    }
+}
+
+/** Teal while there's room; Amber under an hour of use left at this rate, Coral under 20 minutes. */
+@Composable private fun RunwayCard(r: Runway) {
+    val color = when { r.useLeftMs == null -> Teal; r.useLeftMs < 20 * 60_000L -> Coral; r.useLeftMs < 60 * 60_000L -> Amber; else -> Teal }
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).background(color.copy(alpha = .14f), CircleShape), contentAlignment = Alignment.Center) { Glyph(GlyphKind.Clock, color, Modifier.size(22.dp)) }
+            Spacer(Modifier.width(S2))
+            Column(Modifier.weight(1f)) {
+                Label("RUNWAY", color = color); Spacer(Modifier.height(4.dp))
+                Text(r.text, color = Text, fontSize = 16.sp, fontWeight = FontWeight.Medium, lineHeight = 22.sp)
+                r.detail?.let { Spacer(Modifier.height(2.dp)); Text(it, color = color, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+            }
+        }
+        Spacer(Modifier.height(S2)); Text(r.basis, color = Muted, fontSize = 13.sp)
     }
 }
 

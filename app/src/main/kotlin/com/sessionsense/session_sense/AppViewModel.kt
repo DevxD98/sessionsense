@@ -35,7 +35,10 @@ data class AppUiState(
     val dailyPeaks: List<Int> get() = history.dailyPeaks
     /** The in-progress window, reconstructed from live usage (it is only written to Room once it ends). */
     val activeWindowStartMs get() = if (usage.sessionPct > 0 && usage.sessionResetMs > 0) usage.sessionResetMs - 5 * 60 * 60 * 1000L else 0L
-    val insight get() = paceInsight(usage, now)
+    /** When this 5-hour window would run out; null when there's nothing to project. */
+    val runway get() = runway(usage, history.between(usage.sessionResetMs - SESSION_MS, now), now)
+    // The Runway card already says when the session limit is hit, so Pace insight doesn't repeat it.
+    val insight get() = paceInsight(usage, now, skipSessionLimit = runway != null)
 }
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
