@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Lets GlyphSupport see Nothing's per-app Glyph notifications screen (package visibility, Android 11+). -->
+    <queries><intent><action android:name="android.settings.GLYPHS_ALL_APPS_NOTIFICATION_SETTINGS" /></intent></queries>
     <application android:name=".SessionSenseApp" android:allowBackup="true" android:enableOnBackInvokedCallback="true" android:icon="@mipmap/launcher_icon" android:label="SessionSense" android:supportsRtl="true" android:theme="@style/Theme.SessionSense">
         <activity android:name=".MainActivity" android:exported="true" android:theme="@style/Theme.SessionSense">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>

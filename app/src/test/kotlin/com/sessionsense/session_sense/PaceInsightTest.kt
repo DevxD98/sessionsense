@@ -19,6 +19,12 @@ class PaceInsightTest {
         assertTrue(text, text.startsWith("At this pace you'll hit the 5-hour limit in about 1h 20m"))
     }
 
+    @Test fun runwayCardTakesOverTheSessionLimitLine() {
+        val u = UsageSnapshot(sessionPct = 60, sessionResetMs = now + 3 * h, connection = "connected")
+        assertTrue(paceInsight(u, now, zone).text.startsWith("At this pace you'll hit the 5-hour limit"))
+        assertEquals("60% of this 5-hour session used, 3h 0m left.", paceInsight(u, now, zone, skipSessionLimit = true).text)
+    }
+
     @Test fun sessionOnPaceFallsThroughToWeekly() {
         // 20% after 2h won't fill the session; weekly 30% after 3.5 days projects to 60%.
         val text = insight(UsageSnapshot(sessionPct = 20, sessionResetMs = now + 3 * h, weeklyPct = 30, weeklyResetMs = now + 84 * h))

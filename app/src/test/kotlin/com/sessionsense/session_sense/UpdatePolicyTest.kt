@@ -74,7 +74,7 @@ class UpdatePolicyTest {
     }
 
     @Test fun hostAllowlist() {
-        assertTrue(UpdateHosts.isAllowed("https://github.com/DevxD98/sessionsense-releases/releases/latest/download/update.json"))
+        assertTrue(UpdateHosts.isAllowed("https://github.com/DevxD98/sessionsense/releases/latest/download/update.json"))
         assertTrue(UpdateHosts.isAllowed("https://release-assets.githubusercontent.com/github-production-release-asset/1/2?sig=x"))
         assertTrue(UpdateHosts.isAllowed("https://objects.githubusercontent.com/a/b"))
         assertTrue(UpdateHosts.isAllowed("HTTPS://GitHub.com/a"))

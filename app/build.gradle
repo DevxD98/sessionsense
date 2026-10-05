@@ -44,7 +44,7 @@ android {
         sideload {
             dimension "distribution"
             isDefault true
-            buildConfigField "String", "UPDATE_MANIFEST_URL", '"https://github.com/DevxD98/sessionsense-releases/releases/latest/download/update.json"'
+            buildConfigField "String", "UPDATE_MANIFEST_URL", '"https://github.com/DevxD98/sessionsense/releases/latest/download/update.json"'
         }
         play { dimension "distribution" }
     }
@@ -74,6 +74,7 @@ android {
 
 dependencies {
     implementation "androidx.core:core-ktx:1.17.0"
+    implementation "androidx.webkit:webkit:1.14.0"
     implementation "androidx.activity:activity-compose:1.11.0"
     implementation "androidx.lifecycle:lifecycle-runtime-compose:2.9.4"
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4"

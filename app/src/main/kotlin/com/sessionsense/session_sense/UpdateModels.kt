@@ -10,7 +10,7 @@ import java.net.URI
 const val ACTION_OPEN_UPDATE = "com.sessionsense.OPEN_UPDATE"
 
 /**
- * update.json, attached to every GitHub release of DevxD98/sessionsense-releases and read from the stable
+ * update.json, attached to every GitHub release of DevxD98/sessionsense and read from the stable
  * releases/latest/download URL. [notes] is short markdown or plain lines.
  */
 data class UpdateManifest(

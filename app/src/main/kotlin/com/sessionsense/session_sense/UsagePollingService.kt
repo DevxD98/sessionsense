@@ -26,12 +26,21 @@ class UsagePollingService : Service() {
         super.onCreate()
         app = application as SessionSenseApp
         notifications = NotificationCenter(this)
-        showOngoing(UsageSnapshot(), null)
+        // startForeground must be called now. Post the last stored usage, not a blank placeholder: a placeholder replaced by
+        // the real content on the first poll is two posts, and each one flashes the Glyph.
+        val (snapshot, label) = runBlocking { withTimeoutOrNull(500) { app.repository.snapshot() to activeLabel() } } ?: (UsageSnapshot() to null)
+        glyphLights = runBlocking { withTimeoutOrNull(500) { app.repository.settings.first().glyphLights } } ?: true
+        showOngoing(snapshot, label, quiet = false, force = true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         scope.coroutineContext.cancelChildren()
         scope.launch {
+            // The Glyph setting changed: post once now so the progress bar appears or disappears without waiting for a change.
+            if (intent?.getBooleanExtra(EXTRA_REPOST, false) == true) {
+                glyphLights = app.repository.settings.first().glyphLights
+                showOngoing(app.repository.snapshot(), activeLabel(), quiet = false, force = true)
+            }
             while (isActive) {
                 // An unexpected failure skips one poll; left uncaught it would crash the whole app.
                 try { pollAll() } catch (e: CancellationException) { throw e } catch (e: Exception) { Log.w(TAG, "Poll failed", e) }
@@ -82,6 +91,12 @@ class UsagePollingService : Service() {
             siblings -> account.name
             else -> null
         }
+    }
+
+    private suspend fun activeLabel(): String? {
+        val all = app.credentials.accounts.value
+        val id = app.repository.activeId()
+        return all.firstOrNull { it.id == id }?.let { label(it, all) }
     }
 
     private val profileChecked = mutableSetOf<String>()
@@ -272,25 +287,32 @@ class UsagePollingService : Service() {
             if (recorded) p[k.LAST_SAMPLE] = sample.ts
         }
         // Alerts and the live notification belong to the account the user is viewing only; every account has a widget page.
+        // A reset the user asked to hear about is the exception: it's announced whichever account is being viewed.
+        if (active || old[k.NOTIFY_SESSION_RESET] != null || old[k.NOTIFY_WEEKLY_RESET] != null) notifications.onUsage(old, value, transition, k, label, account.provider, active)
         if (!active) return SessionSenseWidgets.updateAll(this)
-        notifications.onUsage(old, value, transition, k, label, account.provider)
         refreshActiveSurfaces(account, label)
     }
 
     private var shownOngoing: OngoingContent? = null
+    private var shownOngoingAt = 0L
+    /** [UserSettings.glyphLights]: off means no progress bar and re-posts only when a session starts or ends. */
+    @Volatile private var glyphLights = true
 
-    /** Re-posts the live notification only when its content changes: every post makes the Nothing Glyph flash. */
-    private fun showOngoing(snapshot: UsageSnapshot, label: String?) {
-        val content = ongoingContent(snapshot, label, System.currentTimeMillis())
-        if (content == shownOngoing) return
-        shownOngoing = content
+    /** Re-posts the live notification only when [OngoingPolicy] says so: every post makes the Nothing Glyph flash. */
+    private fun showOngoing(snapshot: UsageSnapshot, label: String?, quiet: Boolean, force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val content = ongoingContent(snapshot, label, now)
+        if (!force && !OngoingPolicy.shouldRepost(shownOngoing, shownOngoingAt, content, now, quiet, minimal = !glyphLights)) return
+        shownOngoing = content; shownOngoingAt = now
         // The OS can refuse a foreground start (e.g. a background start on Android 12+); stop instead of crashing.
         // MainActivity starts the service again whenever the app is opened.
-        try { startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(content)) } catch (e: Exception) { Log.w(TAG, "startForeground refused", e); stopSelf() }
+        try { startForeground(NotificationCenter.ONGOING_ID, notifications.ongoing(content, progress = glyphLights)) } catch (e: Exception) { Log.w(TAG, "startForeground refused", e); stopSelf() }
     }
 
     private suspend fun refreshActiveSurfaces(account: Account, label: String?) {
-        showOngoing(app.repository.snapshot(), label)
+        val s = app.repository.settings.first()
+        glyphLights = s.glyphLights
+        showOngoing(app.repository.snapshot(), label, isQuietHour(s.quietHours, s.quietStart, s.quietEnd, LocalTime.now().hour))
         SessionSenseWidgets.updateAll(this)
     }
 
@@ -310,7 +332,11 @@ class UsagePollingService : Service() {
         // Android 12+ refuses foreground-service starts while the app is in the background (e.g. the process was spun up
         // for a widget update or by WorkManager). That throws and would kill the process, so treat it as "try again later":
         // MainActivity starts the service whenever the app is opened.
-        fun start(context: Context) = runCatching { ContextCompat.startForegroundService(context, Intent(context, UsagePollingService::class.java)) }.isSuccess
+        // A running service only gets onStartCommand, so [repost] asks it to post the live notification once, now.
+        private const val EXTRA_REPOST = "repost"
+        fun start(context: Context, repost: Boolean = false) = runCatching {
+            ContextCompat.startForegroundService(context, Intent(context, UsagePollingService::class.java).putExtra(EXTRA_REPOST, repost))
+        }.isSuccess
         fun stop(context: Context) = context.stopService(Intent(context, UsagePollingService::class.java))
     }
 }
@@ -331,8 +357,11 @@ object UsageParser {
     }
 }
 
-/** Everything the live notification shows. Equal content means there is nothing to re-post. */
-data class OngoingContent(val title: String, val text: String, val pct: Int, val indeterminate: Boolean, val countdownToMs: Long)
+/**
+ * Everything the live notification shows. Equal content means there is nothing to re-post. Being offline isn't part of
+ * it: a dropped poll changes nothing on screen, so it mustn't cost a re-post.
+ */
+data class OngoingContent(val title: String, val text: String, val pct: Int, val expired: Boolean, val countdownToMs: Long)
 
 fun ongoingContent(s: UsageSnapshot, account: String?, now: Long, zone: ZoneId = ZoneId.systemDefault()): OngoingContent {
     val live = s.sessionWindow && s.sessionPct > 0 && s.sessionResetMs > now
@@ -343,8 +372,33 @@ fun ongoingContent(s: UsageSnapshot, account: String?, now: Long, zone: ZoneId =
         s.sessionPct > 0 -> "${s.sessionPct}% used"
         else -> "Full 5-hour window available"
     }
-    return OngoingContent(if (account != null) "SessionSense · $account" else "SessionSense", text, s.sessionPct, s.connection != "connected",
+    return OngoingContent(if (account != null) "SessionSense · $account" else "SessionSense", text, s.sessionPct, s.connection == "expired",
         if (live && s.connection != "expired") s.sessionResetMs else 0L)
+}
+
+/**
+ * When the live notification is re-posted. Nothing phones flash the Glyph on every post (even a silent update), so a
+ * percentage tick waits until [MIN_REPOST_MS] after the last post. Only changes the user needs straight away go out
+ * at once: another account, the login state, a new or finished window, or a step into the amber/coral/full colour band.
+ * During quiet hours only the account and login state get through; everything else waits until quiet hours end.
+ * [minimal] (the Glyph switch is off) also drops percentage ticks and band changes: only the account, the login state
+ * and a window starting or ending re-post, so on a Nothing phone the Glyph flashes a few times per session at most.
+ */
+object OngoingPolicy {
+    const val MIN_REPOST_MS = 10 * 60_000L
+
+    fun shouldRepost(shown: OngoingContent?, shownAtMs: Long, next: OngoingContent, now: Long, quiet: Boolean, minimal: Boolean = false): Boolean {
+        if (shown == null) return true
+        if (next == shown) return false
+        if (next.title != shown.title || next.expired != shown.expired) return true
+        if (quiet) return false
+        if (next.countdownToMs != shown.countdownToMs) return true
+        if (minimal) return false
+        if (band(next.pct) != band(shown.pct)) return true
+        return now - shownAtMs >= MIN_REPOST_MS
+    }
+
+    private fun band(pct: Int) = when { pct >= 100 -> 3; pct >= 85 -> 2; pct >= 60 -> 1; else -> 0 }
 }
 
 class NotificationCenter(private val context: Context) {
@@ -355,22 +409,31 @@ class NotificationCenter(private val context: Context) {
         manager.createNotificationChannel(NotificationChannel(ONGOING_CHANNEL, "Live session", NotificationManager.IMPORTANCE_LOW))
         manager.createNotificationChannel(NotificationChannel(ALERT_CHANNEL, "Usage alerts", NotificationManager.IMPORTANCE_HIGH))
         manager.createNotificationChannel(NotificationChannel(DIGEST_CHANNEL, "Weekly digest", NotificationManager.IMPORTANCE_DEFAULT))
+        manager.createNotificationChannel(NotificationChannel(TIPS_CHANNEL, "Tips", NotificationManager.IMPORTANCE_MIN))
     }
 
-    fun ongoing(c: OngoingContent): Notification {
+    fun ongoing(c: OngoingContent, progress: Boolean = true): Notification {
         val builder = base(ONGOING_CHANNEL).setContentTitle(c.title).setContentText(c.text).setOngoing(true).setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_STATUS)
         // The system ticks the countdown itself, so the notification doesn't have to be re-posted every minute.
         if (c.countdownToMs > 0) builder.setWhen(c.countdownToMs).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true)
         else builder.setShowWhen(false)
-        if (Build.VERSION.SDK_INT >= 36) {
-            builder.setStyle(Notification.ProgressStyle().setProgress(c.pct)
+        // A progress bar only while a window is running. Nothing's Glyph Progress mirrors it, so an idle, offline or
+        // indeterminate (animated) bar would light the Glyph when there's nothing to show. None at all when the user
+        // switched SessionSense's Glyph lights off.
+        if (progress && c.countdownToMs > 0) {
+            if (Build.VERSION.SDK_INT >= 36) builder.setStyle(Notification.ProgressStyle().setProgress(c.pct)
                 .addProgressSegment(Notification.ProgressStyle.Segment(100).setColor(accent(c.pct))))
-        } else builder.setProgress(100, c.pct, c.indeterminate)
+            else builder.setProgress(100, c.pct, false)
+        }
         return builder.build()
     }
 
-    /** [account] prefixes alert titles (see UsagePollingService.label); [provider] names the window in alert bodies. */
-    suspend fun onUsage(old: Preferences, s: UsageSnapshot, transition: TrackingResult, k: AccountKeys, account: String?, provider: Provider = Provider.CLAUDE) {
+    /**
+     * [account] prefixes alert titles (see UsagePollingService.label); [provider] names the window in alert bodies.
+     * For a background account (not [active]) only reset requests are handled.
+     */
+    suspend fun onUsage(old: Preferences, s: UsageSnapshot, transition: TrackingResult, k: AccountKeys, account: String?, provider: Provider = Provider.CLAUDE, active: Boolean = true) {
         val settings = app.repository.settings.first()
         val flags = (old[k.ALERT_FLAGS] ?: emptySet()).toMutableSet()
         fun once(key: String, critical: Boolean = false, block: () -> Unit) {
@@ -378,13 +441,32 @@ class NotificationCenter(private val context: Context) {
         }
         // With several accounts, name the one an alert is about.
         fun alert(id: Int, title: String, body: String, low: Boolean = false) = this@NotificationCenter.alert(id, if (account != null) "$account · $title" else title, body, low)
-        if (transition.started && settings.sessionAlerts) once("start:${s.sessionResetMs}") {
+        val sessionFlag = old[k.NOTIFY_SESSION_RESET]; val weeklyFlag = old[k.NOTIFY_WEEKLY_RESET]
+        suspend fun save(sessionRequest: ResetRequest, weeklyRequest: ResetRequest) = context.dataStore.edit {
+            it[k.ALERT_FLAGS] = retainAlertFlags(flags, s.sessionResetMs, s.weeklyResetMs)
+            // A request that fired or went stale is cleared, unless the user set a new one meanwhile.
+            if (sessionRequest != ResetRequest.NONE && it[k.NOTIFY_SESSION_RESET] == sessionFlag) it.remove(k.NOTIFY_SESSION_RESET)
+            if (weeklyRequest != ResetRequest.NONE && it[k.NOTIFY_WEEKLY_RESET] == weeklyFlag) it.remove(k.NOTIFY_WEEKLY_RESET)
+        }
+        // "Notify me when ready" from Home's reset planner. The user asked for it, so it ignores the alert switches and
+        // quiet hours. A reset is caught on the next poll (about 5 s) while the service runs; if the service was stopped,
+        // RecoveryWorker restarts it within 15 minutes, so the ping can be that late. There's no exact alarm in v1.1.
+        val sessionRequest = resetNotifyDue(sessionFlag, old[k.SESSION_RESET] ?: 0, s.sessionResetMs, transition.ended != null)
+        val oldWeeklyReset = old[k.WEEKLY_RESET] ?: 0
+        val weeklyRequest = resetNotifyDue(weeklyFlag, oldWeeklyReset, s.weeklyResetMs, weeklyEnded(oldWeeklyReset, s.weeklyResetMs, old[k.WEEKLY] ?: 0, s.weeklyPct))
+        val asked = sessionRequest == ResetRequest.FIRE
+        if (transition.started && active && settings.sessionAlerts) once("start:${s.sessionResetMs}") {
             alert(101, "New 5-hour session started", "Resets at ${formatTime(s.sessionResetMs)}")
         }
-        // On a rollover a new window is already running, so "full session available" would be wrong.
-        if (transition.ended != null && !transition.started && settings.sessionAlerts) once(resetAlertKey(s.sessionResetMs)) {
+        // On a rollover a new window is already running, so "full session available" would be wrong. A requested ping
+        // shares the alert's id and once-key, so one reset never alerts twice.
+        if (transition.ended != null && !transition.started && ((active && settings.sessionAlerts) || asked)) once(resetAlertKey(s.sessionResetMs), critical = asked) {
             alert(102, "Full session available", "Your 5-hour ${provider.label} window has reset.")
         }
+        if (weeklyRequest == ResetRequest.FIRE) once("weekly-ready:$oldWeeklyReset", critical = true) {
+            alert(205, "Weekly limit reset", "Your weekly ${provider.label} limit is available again.")
+        }
+        if (!active) { save(sessionRequest, weeklyRequest); return }
         val remaining = s.sessionResetMs - System.currentTimeMillis()
         if (s.sessionPct > 0 && settings.sessionAlerts) {
             listOf(60 to 103, 30 to 104, 10 to 105).forEach { (minutes, id) ->
@@ -403,6 +485,18 @@ class NotificationCenter(private val context: Context) {
                 alert(id, "Weekly usage at ${s.weeklyPct}%", "Resets ${formatTime(s.weeklyResetMs)}")
             }
         }
+        // Weekly reserve: once each per weekly window, like the other weekly alerts.
+        val reserve = old[k.WEEKLY_RESERVE] ?: 0
+        if (settings.weeklyAlerts) reserveAlerts(oldWeekly, s.weeklyPct, reserve).forEach { kind ->
+            when (kind) {
+                ReserveAlert.NEAR -> once("reserve-near:${s.weeklyResetMs}") {
+                    alert(206, "${reserveState(s.weeklyPct, reserve).free}% left before your reserve", "Weekly at ${s.weeklyPct}% · $reserve% kept in reserve")
+                }
+                ReserveAlert.ENTERED -> once("reserve-in:${s.weeklyResetMs}") {
+                    alert(207, "You’re into your $reserve% reserve", "Weekly at ${s.weeklyPct}% · resets ${formatTime(s.weeklyResetMs)}")
+                }
+            }
+        }
         val oldOpus = old[k.OPUS] ?: 0
         if (settings.modelAlerts && s.opusReported && oldOpus < 80 && s.opusPct >= 80) once("opus:80:${s.weeklyResetMs}") {
             alert(203, "Opus quota at ${s.opusPct}%", "Your Opus allowance is nearing its limit.")
@@ -411,7 +505,7 @@ class NotificationCenter(private val context: Context) {
         if (settings.weeklyAlerts && s.weeklyPct >= 80 && weeklyRemaining in 1..6 * 60 * 60 * 1000L) once("weekly-reset:${s.weeklyResetMs}") {
             alert(204, "Weekly quota resets soon", "${s.weeklyPct}% used · resets in ${formatDuration(weeklyRemaining)}")
         }
-        context.dataStore.edit { it[k.ALERT_FLAGS] = retainAlertFlags(flags, s.sessionResetMs, s.weeklyResetMs) }
+        save(sessionRequest, weeklyRequest)
     }
 
     suspend fun maybeSendWeeklyDigest(dao: SessionDao) {
@@ -430,15 +524,16 @@ class NotificationCenter(private val context: Context) {
 
     private fun alert(id: Int, title: String, body: String, low: Boolean = false) {
         // Belt and braces: re-posting an alert that's still showing updates it silently (no sound, vibration or Glyph).
-        manager.notify(id, base(if (low) ONGOING_CHANNEL else ALERT_CHANNEL).setContentTitle(title).setContentText(body).setAutoCancel(true).setOnlyAlertOnce(true).build())
+        // Low-priority tips go to a minimum-importance channel: no status-bar icon, and no reason to light the Glyph.
+        manager.notify(id, base(if (low) TIPS_CHANNEL else ALERT_CHANNEL).setContentTitle(title).setContentText(body).setAutoCancel(true).setOnlyAlertOnce(true).build())
     }
     private fun base(channel: String) = Notification.Builder(context, channel)
-        .setSmallIcon(android.R.drawable.stat_notify_sync).setColor(Color.rgb(110, 231, 208)).setContentIntent(
+        .setSmallIcon(R.drawable.ic_stat_sessionsense).setColor(Color.rgb(110, 231, 208)).setContentIntent(
             PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
     private fun quiet(s: UserSettings) = isQuietHour(s.quietHours, s.quietStart, s.quietEnd, LocalTime.now().hour)
     private fun accent(pct: Int) = when { pct >= 85 -> Color.rgb(244,138,122); pct >= 60 -> Color.rgb(244,199,122); else -> Color.rgb(110,231,208) }
     private fun formatTime(ms: Long) = if (ms <= 0) "soon" else Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("EEE h:mm a"))
     private fun formatDuration(ms: Long): String { val m = ms / 60_000; return "${m / 60}h ${m % 60}m" }
 
-    companion object { const val ONGOING_ID = 9001; private const val ONGOING_CHANNEL = "live_session"; private const val ALERT_CHANNEL = "usage_alerts"; private const val DIGEST_CHANNEL = "weekly_digest" }
+    companion object { const val ONGOING_ID = 9001; private const val ONGOING_CHANNEL = "live_session"; private const val ALERT_CHANNEL = "usage_alerts"; private const val DIGEST_CHANNEL = "weekly_digest"; private const val TIPS_CHANNEL = "tips" }
 }

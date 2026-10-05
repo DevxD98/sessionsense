@@ -9,7 +9,7 @@ class UpdateManifestParserTest {
     private fun json(vararg overrides: Pair<String, Any?>, drop: Set<String> = emptySet()): String {
         val o = JSONObject()
             .put("versionCode", 1_002_003).put("versionName", "1.2.3")
-            .put("apkUrl", "https://github.com/DevxD98/sessionsense-releases/releases/download/v1.2.3/sessionsense-1.2.3.apk")
+            .put("apkUrl", "https://github.com/DevxD98/sessionsense/releases/download/v1.2.3/sessionsense-1.2.3.apk")
             .put("sha256", sha).put("sizeBytes", 12_345_678).put("minSupportedVersionCode", 1_000_000)
             .put("notes", "- Faster widgets\n- Fixes").put("publishedAt", "2026-09-27T10:00:00Z")
         overrides.forEach { (k, v) -> o.put(k, v ?: JSONObject.NULL) }
@@ -58,7 +58,7 @@ class UpdateManifestParserTest {
 
     @Test fun apkUrlMustBeHttpsGitHub() {
         listOf(
-            "http://github.com/DevxD98/sessionsense-releases/releases/download/v1.2.3/a.apk",
+            "http://github.com/DevxD98/sessionsense/releases/download/v1.2.3/a.apk",
             "https://evil.example/a.apk",
             "https://github.com.evil.example/a.apk",
             "https://user@github.com/a.apk",
